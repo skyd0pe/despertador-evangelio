@@ -23,7 +23,7 @@ jobs:
         with:
           gradle-version: "8.9"
 
-      - name: Bajar tipografías (Cormorant Garamond y Source Serif 4, licencia OFL)
+      - name: Bajar tipografías de la marca (Fraunces, Inter y Literata, licencia OFL)
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -37,9 +37,12 @@ jobs:
             echo "$1 -> $url"
             curl -fsSL "$url" -o "app/src/main/assets/fonts/$2"
           }
-          get cormorantgaramond display.ttf
-          get sourceserif4 text.ttf
-          curl -fsSL "https://raw.githubusercontent.com/google/fonts/main/ofl/sourceserif4/OFL.txt" -o app/src/main/assets/fonts/OFL.txt || true
+          get fraunces display.ttf
+          get inter ui.ttf
+          get literata text.ttf
+          for f in fraunces inter literata; do
+            curl -fsSL "https://raw.githubusercontent.com/google/fonts/main/ofl/$f/OFL.txt" -o "app/src/main/assets/fonts/OFL-$f.txt" || true
+          done
           ls -la app/src/main/assets/fonts
 
       - name: Compilar

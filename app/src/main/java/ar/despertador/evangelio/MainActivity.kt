@@ -7,14 +7,13 @@ import android.app.NotificationManager
 import android.app.TimePickerDialog
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.speech.SpeechRecognizer
-import android.text.SpannableStringBuilder
+import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
 import android.view.Gravity
@@ -39,19 +38,17 @@ class MainActivity : Activity() {
 
     private lateinit var pages: List<ScrollView>
     private lateinit var tabs: List<TextView>
-    private lateinit var ribbon: RibbonView
 
     // Alarmas
-    private lateinit var tvNext: TextView
+    private lateinit var tvNextTime: TextView
+    private lateinit var tvNextWhen: TextView
+    private lateinit var tvNextStreak: TextView
     private lateinit var alarmsBox: LinearLayout
-    private lateinit var tvPreviewRef: TextView
-    private lateinit var tvPreviewTitle: TextView
 
     // Evangelio
-    private lateinit var tvGRubric: TextView
+    private lateinit var tvGLit: TextView
+    private lateinit var tvGRef: TextView
     private lateinit var tvGDate: TextView
-    private lateinit var tvGHeading: TextView
-    private lateinit var tvGRefNums: TextView
     private lateinit var tvGText: TextView
     private var gospel: Gospel? = null
 
@@ -82,25 +79,24 @@ class MainActivity : Activity() {
 
     private val ecumenical get() = Prefs.ecumenical(this)
 
+    private fun hm(h: Int, m: Int) = String.format(Locale.US, "%02d:%02d", h, m)
+
     // =====================================================================
-    // Estructura: tres páginas y una barra de pestañas abajo
+    // Estructura: tres páginas y la barra de pestañas
     // =====================================================================
 
     private fun buildUi() {
         pages = listOf(page(alarmsPage()), page(gospelPage()), page(settingsPage()))
         val content = FrameLayout(this)
-        pages.forEach { content.addView(it, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)) }
+        pages.forEach {
+            content.addView(it, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
 
-        ribbon = RibbonView(this).apply { color = p.rubric }
-        content.addView(ribbon, FrameLayout.LayoutParams(dp(22), dp(96), Gravity.TOP or Gravity.END).apply {
-            rightMargin = dp(32)
-        })
-
-        val nav = row(this).apply { setPadding(dp(12), dp(4), dp(12), dp(10)) }
+        val nav = row(this).apply { setPadding(dp(12), 0, dp(12), dp(8)) }
         tabs = listOf("Alarmas", "Evangelio", "Ajustes").mapIndexed { i, name ->
-            label(name, 15f, p.muted).apply {
+            label(name, 14f, p.muted).apply {
                 gravity = Gravity.CENTER
-                setPadding(0, dp(12), 0, dp(10))
+                setPadding(0, dp(14), 0, dp(12))
                 setOnClickListener { showTab(i) }
             }
         }
@@ -118,21 +114,16 @@ class MainActivity : Activity() {
         addView(inner)
     }
 
-    private fun pageColumn() = col(this).apply { setPadding(dp(28), dp(40), dp(28), dp(36)) }
+    private fun pageColumn() = col(this).apply { setPadding(dp(24), dp(40), dp(24), dp(36)) }
 
     private fun showTab(i: Int) {
         tab = i
         pages.forEachIndexed { k, v -> v.visibility = if (k == i) View.VISIBLE else View.GONE }
         tabs.forEachIndexed { k, t ->
             val on = k == i
-            t.setTextColor(if (on) p.ink else p.muted)
-            t.typeface = if (on) Fonts.text(this, 600) else Fonts.text(this)
-            val text = t.text.toString()
-            val sb = SpannableStringBuilder(text)
-            if (on) sb.setSpan(android.text.style.UnderlineSpan(), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-            t.text = sb
+            t.setTextColor(if (on) p.accent else p.muted)
+            t.typeface = Fonts.ui(this, if (on) 600 else 400)
         }
-        ribbon.visibility = if (i == 2) View.GONE else View.VISIBLE
     }
 
     // =====================================================================
@@ -141,129 +132,131 @@ class MainActivity : Activity() {
 
     private fun alarmsPage(): View {
         val c = pageColumn()
-        c.add(label("LAZARUS", 40f, p.ink, Fonts.display(this, 600)).apply { letterSpacing = 0.08f })
-        c.add(label("«Lázaro, sal fuera» · Jn 11, 43", 15f, p.rubric, Fonts.italic(this)), 2)
+        c.add(label("Lazarus", 36f, p.ink, Fonts.display(this, 500, 72)))
+        c.add(label("Levantate y escuchá.", 16f, p.muted, Fonts.display(this, 400, 24)), 2)
 
-        tvNext = label("", 15f, p.muted)
-        c.add(tvNext, 24)
+        val next = card(p)
+        next.add(eyebrow("Próxima alarma", p))
+        tvNextTime = label("--:--", 56f, p.ink, Fonts.display(this, 400, 144)).apply {
+            includeFontPadding = false
+            setLineSpacing(0f, 1f)
+        }
+        next.add(tvNextTime, 6)
+        tvNextWhen = label("", 15f, p.muted)
+        next.add(tvNextWhen, 4)
+        next.add(TrazoView(this, p.accent, 28), 14)
+        tvNextStreak = label("", 14f, p.ink)
+        next.add(tvNextStreak, 8)
+        c.add(next, 24)
 
         val head = row(this)
-        head.add(rubric("Alarmas", p), weight = 1f)
-        head.add(textButton("+ Agregar", p.rubric) { addAlarm() }, matchWidth = false)
-        c.add(head, 22)
-        c.add(hairline(p, p.ink))
+        head.add(eyebrow("Tus alarmas", p, p.muted), weight = 1f)
+        head.add(pill("+ Nueva", p.accent, p.accent, outline = true) { addAlarm() }.apply {
+            minHeight = dp(40)
+            minimumHeight = dp(40)
+            textSize = 14f
+            setPadding(dp(16), dp(6), dp(16), dp(6))
+        }, matchWidth = false)
+        c.add(head, 28)
 
         alarmsBox = col(this)
-        c.add(alarmsBox)
+        c.add(alarmsBox, 4)
 
-        c.add(label("Tocá la hora para cambiarla. Mantené apretada una alarma para borrarla.", 13f, p.muted, Fonts.italic(this)), 12)
-        c.add(bookButton("Probar ahora", p.ink, p.ink, filled = false) { testNow() }, 18)
-
-        val preview = col(this).apply {
-            setOnClickListener { showTab(1) }
-            isClickable = true
-        }
-        tvPreviewTitle = rubric("Evangelio de hoy", p)
-        tvPreviewRef = label("Cargando…", 18f, p.ink, Fonts.text(this, 600))
-        preview.add(tvPreviewTitle)
-        preview.add(tvPreviewRef, 4)
-        preview.add(label("Leer ahora →", 14f, p.muted, Fonts.italic(this)), 4)
-        c.add(preview, 30)
+        c.add(pill("Probar ahora", p.primaryBg, p.primaryFg) { testNow() }, 20)
+        c.add(label("Tocá la hora para cambiarla. Mantené apretada una alarma para borrarla.", 13f, p.muted).apply {
+            gravity = Gravity.CENTER
+        }, 12)
         return c
     }
 
     private fun refreshAlarms() {
         val ok = AlarmScheduler.scheduleAll(this)
         alarmsBox.removeAllViews()
-        AlarmStore.all(this).forEach { alarmsBox.add(alarmEntry(it)) }
+        AlarmStore.all(this).forEach { alarmsBox.add(alarmCard(it), 10) }
 
         val next = AlarmScheduler.next(this)
         when {
             !ok -> {
-                tvNext.text = "No se pueden programar las alarmas: falta un permiso (en Ajustes)."
-                tvNext.setTextColor(p.rubric)
+                tvNextTime.text = "--:--"
+                tvNextWhen.text = "Falta un permiso para programar las alarmas. Revisalo en Ajustes."
+                tvNextWhen.setTextColor(p.warn)
             }
             next == null -> {
-                tvNext.text = "No hay alarmas activadas."
-                tvNext.setTextColor(p.muted)
+                tvNextTime.text = "--:--"
+                tvNextWhen.text = "No hay alarmas activadas."
+                tvNextWhen.setTextColor(p.muted)
             }
             else -> {
-                val (day, rest) = whenText(next.second)
-                val sb = SpannableStringBuilder("Próxima: ")
-                val st = sb.length
-                sb.append(day)
-                sb.setSpan(ForegroundColorSpan(p.ink), st, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                sb.setSpan(android.text.style.StyleSpan(Typeface.BOLD), st, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                sb.append(", $rest")
-                tvNext.text = sb
-                tvNext.setTextColor(p.muted)
+                val cal = Calendar.getInstance().apply { timeInMillis = next.second }
+                tvNextTime.text = hm(cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
+                tvNextWhen.text = whenText(next.second)
+                tvNextWhen.setTextColor(p.muted)
             }
         }
+        val n = Streak.current(this)
+        tvNextStreak.text = if (n == 0) "Mañana puede empezar tu racha." else Streak.phrase(n)
     }
 
-    /** "mañana a las 6:30" y "en 5 h 41 min". */
-    private fun whenText(t: Long): Pair<String, String> {
+    /** "Mañana · en 5 h 41 min". */
+    private fun whenText(t: Long): String {
         val cal = Calendar.getInstance().apply { timeInMillis = t }
         val today = Calendar.getInstance()
         val tomorrow = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
         fun same(a: Calendar, b: Calendar) =
             a.get(Calendar.YEAR) == b.get(Calendar.YEAR) && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)
         val day = when {
-            same(cal, today) -> "hoy"
-            same(cal, tomorrow) -> "mañana"
-            else -> "el " + listOf("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")[Alarm.dayIndex(cal)]
+            same(cal, today) -> "Hoy"
+            same(cal, tomorrow) -> "Mañana"
+            else -> listOf("El lunes", "El martes", "El miércoles", "El jueves", "El viernes", "El sábado", "El domingo")[Alarm.dayIndex(cal)]
         }
-        val hm = "${cal.get(Calendar.HOUR_OF_DAY)}:${String.format(Locale.US, "%02d", cal.get(Calendar.MINUTE))}"
         val mins = ((t - System.currentTimeMillis()) / 60000).toInt()
-        return "$day a las $hm" to "en ${mins / 60} h ${mins % 60} min"
+        return "$day · en ${mins / 60} h ${mins % 60} min"
     }
 
-    private fun alarmEntry(a: Alarm): View {
-        val e = col(this).apply {
-            setPadding(0, dp(14), 0, dp(14))
+    private fun alarmCard(a: Alarm): View {
+        val c = card(p).apply {
             setOnLongClickListener { confirmDelete(a); true }
         }
         val top = row(this)
-        val time = "${a.hour}:${String.format(Locale.US, "%02d", a.minute)}"
-        top.add(label(time, 48f, if (a.enabled) p.ink else p.faint, Fonts.display(this, 600)).apply {
+        val texts = col(this)
+        texts.add(label(hm(a.hour, a.minute), 40f, if (a.enabled) p.ink else p.faint, Fonts.display(this, 400, 96)).apply {
             includeFontPadding = false
             setOnClickListener { editTime(a) }
             setOnLongClickListener { confirmDelete(a); true }
-        }, weight = 1f)
+            contentDescription = "Cambiar la hora de la alarma de las ${hm(a.hour, a.minute)}"
+        })
+        texts.add(label(a.daysText(), 13f, p.muted), 4)
+        top.add(texts, weight = 1f)
         val sw = Switch(this).apply {
             isChecked = a.enabled
-            contentDescription = "Activar alarma de las $time"
+            contentDescription = "Activar alarma de las ${hm(a.hour, a.minute)}"
             setOnCheckedChangeListener { _, on ->
                 AlarmStore.upsert(this@MainActivity, a.copy(enabled = on))
                 if (on) prefetch()
                 refreshAlarms()
             }
         }
-        tintControls(p, sw)
+        tintSwitch(p, sw)
         top.add(sw, matchWidth = false)
-        e.add(top)
+        c.add(top)
 
-        val days = row(this)
+        val days = row(this).apply { gravity = Gravity.CENTER_VERTICAL }
         for (i in 0..6) {
             val on = a.hasDay(i)
-            days.add(label(Alarm.DAY_LETTERS[i], 15f, if (on) p.rubric else p.faint, Fonts.text(this, if (on) 600 else 400)).apply {
-                setPadding(0, dp(8), dp(14), dp(8))
+            val dot = dayDot(Alarm.DAY_LETTERS[i], on, p, 34, onFill = p.accentSoft, onText = p.accent).apply {
+                background = if (on) rounded(p.accentSoft, 17f) else rounded(android.graphics.Color.TRANSPARENT, 17f, p.rule)
+                setTextColor(if (on) p.accent else p.muted)
                 contentDescription = Alarm.DAY_NAMES[i] + if (on) ", activado" else ", desactivado"
                 setOnClickListener {
                     AlarmStore.upsert(this@MainActivity, a.copy(days = a.days xor (1 shl i)))
                     refreshAlarms()
                 }
-            }, matchWidth = false)
+            }
+            (dot.layoutParams as LinearLayout.LayoutParams).leftMargin = if (i > 0) dp(6) else 0
+            days.addView(dot)
         }
-        days.add(label(a.daysText().replaceFirstChar { it.lowercase() }, 14f, p.muted, Fonts.italic(this)).apply {
-            gravity = Gravity.END
-        }, weight = 1f)
-        e.add(days, 4)
-
-        val wrap = col(this)
-        wrap.add(e)
-        wrap.add(hairline(p))
-        return wrap
+        c.add(days, 14)
+        return c
     }
 
     private fun editTime(a: Alarm) {
@@ -284,7 +277,7 @@ class MainActivity : Activity() {
 
     private fun confirmDelete(a: Alarm) {
         AlertDialog.Builder(this, p.dialogTheme)
-            .setMessage("¿Borrar la alarma de las ${a.hour}:${String.format(Locale.US, "%02d", a.minute)}?")
+            .setMessage("¿Borrar la alarma de las ${hm(a.hour, a.minute)}?")
             .setPositiveButton("Borrar") { _, _ ->
                 AlarmScheduler.cancel(this, a.id)
                 AlarmStore.delete(this, a.id)
@@ -305,57 +298,49 @@ class MainActivity : Activity() {
 
     private fun gospelPage(): View {
         val c = pageColumn()
-        tvGRubric = rubric("Evangelio del día", p).apply { setPadding(0, 0, dp(44), 0) }
-        tvGDate = label("", 14f, p.muted, Fonts.italic(this))
-        c.add(tvGRubric)
+        tvGLit = eyebrow("Evangelio del día", p)
+        c.add(tvGLit)
+        tvGRef = label("Cargando…", 32f, p.ink, Fonts.display(this, 400, 72))
+        c.add(tvGRef, 6)
+        tvGDate = label("", 15f, p.muted)
         c.add(tvGDate, 2)
-        c.add(hairline(p), 18)
+        c.add(TrazoView(this, p.accent, 32), 18)
 
-        val head = row(this).apply { gravity = Gravity.BOTTOM }
-        tvGHeading = label("", 15f, p.rubric, Fonts.italic(this))
-        tvGRefNums = label("", 15f, p.rubric, Fonts.text(this, 600))
-        head.add(tvGHeading, weight = 1f)
-        head.add(tvGRefNums, matchWidth = false)
-        c.add(head, 14)
+        tvGText = label("", Prefs.fontSize(this).toFloat(), p.ink, Fonts.text(this)).apply {
+            setLineSpacing(0f, 1.55f)
+        }
+        c.add(tvGText, 18)
 
-        tvGText = label("Cargando…", Prefs.fontSize(this).toFloat(), p.ink).apply { setLineSpacing(0f, 1.5f) }
-        c.add(tvGText, 12)
-
-        c.add(textButton("Actualizar", p.rubric) { loadGospel(force = true) }, 18)
+        c.add(textButton("Actualizar", p.accent) { loadGospel(force = true) }, 18)
         c.add(label(
             "Texto bíblico: El Libro del Pueblo de Dios, vía evangeliodeldia.org. " +
                 "Se baja la noche anterior, así suena aunque no haya internet.",
-            13f, p.muted, Fonts.italic(this)
-        ), 6)
+            13f, p.muted
+        ), 4)
         return c
     }
 
     private fun showGospel(g: Gospel?) {
         gospel = g
         if (g == null) {
-            tvGText.text = "No se pudo bajar. Revisá la conexión y tocá Actualizar."
-            tvPreviewRef.text = "Sin conexión"
+            tvGRef.text = "Sin conexión"
+            tvGText.text = "No se pudo bajar el Evangelio de hoy. Revisá la conexión y tocá Actualizar."
             return
         }
         val date = Liturgy.dateOf(g.date)
-        val dateText = date.format(DateTimeFormatter.ofPattern("EEEE d 'de' MMMM", Locale("es", "AR")))
+        tvGDate.text = date.format(DateTimeFormatter.ofPattern("EEEE d 'de' MMMM", Locale("es", "AR")))
             .replaceFirstChar { it.uppercase() }
-        val book = g.ref.substringBefore(' ')
-        tvGRefNums.text = g.ref.substringAfter(' ', "")
-        tvPreviewRef.text = g.ref
-        if (ecumenical) {
-            ribbon.color = p.rubric
-            tvGRubric.text = dateText.uppercase()
-            tvGDate.visibility = View.GONE
-            tvGHeading.text = "Evangelio de $book"
+        tvGRef.text = g.ref.ifBlank { "Evangelio del día" }
+        if (ecumenical || g.title.isBlank()) {
+            tvGLit.text = "EVANGELIO DEL DÍA"
+            tvGLit.setTextColor(p.accent)
         } else {
-            ribbon.color = p.liturgical(Liturgy.color(date, g.title))
-            tvGRubric.text = g.title.ifBlank { "Evangelio del día" }.uppercase()
-            tvGDate.visibility = View.VISIBLE
-            tvGDate.text = dateText
-            tvGHeading.text = "✠  Lectura del santo Evangelio según san $book"
+            val color = p.liturgical(Liturgy.color(date, g.title))
+            val sb = SpannableString("●  " + g.title.uppercase())
+            sb.setSpan(ForegroundColorSpan(color), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            tvGLit.text = sb
         }
-        tvGText.text = withDropCap(g.text, p, tvGText.textSize)
+        tvGText.text = g.text
     }
 
     private fun prefetch() {
@@ -378,41 +363,39 @@ class MainActivity : Activity() {
     // Página 3: ajustes
     // =====================================================================
 
-    private fun section(c: LinearLayout, title: String, topDp: Int = 30) {
-        c.add(rubric(title, p), topDp)
-        c.add(hairline(p, p.ink), 6)
+    private fun section(c: LinearLayout, title: String) {
+        c.add(eyebrow(title, p), 32)
+        c.add(hairline(p), 8)
     }
+
+    private fun settingTitle(s: String) = label(s, 16f, p.ink, Fonts.ui(this, 600))
+    private fun note(s: String) = label(s, 13f, p.muted)
 
     private fun settingsPage(): View {
         val c = pageColumn()
-        c.add(label("Ajustes", 40f, p.ink, Fonts.display(this, 600)))
+        c.add(label("Ajustes", 36f, p.ink, Fonts.display(this, 500, 72)))
 
         // Apariencia
         section(c, "Apariencia")
-        c.add(label("Tema", 16f, p.ink, Fonts.text(this, 600)), 14)
+        c.add(settingTitle("Tema"), 16)
         c.add(choices(ThemeMode.values().map { it to it.label }, Prefs.theme(this)) {
             Prefs.setTheme(this, it)
             recreate()
         }, 4)
-        c.add(label("Sistema sigue el modo nocturno del celular. AMOLED usa negro puro y gasta menos batería.", 13f, p.muted, Fonts.italic(this)), 2)
+        c.add(note("Sistema sigue el modo nocturno del celular. AMOLED usa negro puro y gasta menos batería."), 2)
 
-        val tvFont = label("", 16f, p.ink, Fonts.text(this, 600))
-        val sample = label("", Prefs.fontSize(this).toFloat(), p.ink).apply {
+        val tvFont = settingTitle("")
+        val sample = label("«Habla, Señor, que tu siervo escucha.»", Prefs.fontSize(this).toFloat(), p.ink, Fonts.text(this)).apply {
             setLineSpacing(0f, 1.5f)
-            setPadding(dp(16), dp(14), dp(16), dp(14))
-            background = android.graphics.drawable.GradientDrawable().apply {
-                setColor(p.surface)
-                cornerRadius = dpf(3f)
-            }
+            setPadding(dp(18), dp(16), dp(18), dp(16))
+            background = rounded(p.surface, 16f)
         }
-        val sampleText = "Bienaventurados los pobres en espíritu: porque de ellos es el reino de los cielos."
         fun showFont(v: Int) {
             tvFont.text = "Letra del Evangelio: $v"
             sample.textSize = v.toFloat()
-            sample.text = withDropCap(sampleText, p, sample.textSize)
         }
         showFont(Prefs.fontSize(this))
-        c.add(tvFont, 22)
+        c.add(tvFont, 24)
         c.add(SeekBar(this).apply {
             max = 8
             progress = (Prefs.fontSize(this@MainActivity) - 16) / 2
@@ -422,16 +405,15 @@ class MainActivity : Activity() {
                 showFont(size)
                 Prefs.setFontSize(this@MainActivity, size)
                 tvGText.textSize = size.toFloat()
-                gospel?.let { tvGText.text = withDropCap(it.text, p, tvGText.textSize) }
             })
         }, 6)
-        c.add(label("Así se ve al despertarte:", 13f, p.muted, Fonts.italic(this)), 8)
+        c.add(note("Así se ve al despertarte:"), 8)
         c.add(sample, 6)
 
-        // Fe
+        // Tradición
         section(c, "Tradición")
         val ecuRow = row(this)
-        ecuRow.add(label("Modo ecuménico", 16f, p.ink, Fonts.text(this, 600)), weight = 1f)
+        ecuRow.add(settingTitle("Modo ecuménico"), weight = 1f)
         val sw = Switch(this).apply {
             isChecked = Prefs.ecumenical(this@MainActivity)
             contentDescription = "Modo ecuménico"
@@ -440,21 +422,20 @@ class MainActivity : Activity() {
                 showGospel(gospel)
             }
         }
-        tintControls(p, sw)
+        tintSwitch(p, sw)
         ecuRow.add(sw, matchWidth = false)
-        c.add(ecuRow, 14)
-        c.add(label(
+        c.add(ecuRow, 16)
+        c.add(note(
             "Oculta el calendario litúrgico, el color de cada tiempo y las fórmulas propias de la misa. " +
-                "Quedan solo el texto bíblico y sus citas.",
-            13f, p.muted, Fonts.italic(this)
+                "Quedan solo el texto bíblico y sus citas."
         ), 2)
 
         // Lectura
         section(c, "Lectura")
-        val tvTol = label("", 16f, p.ink, Fonts.text(this, 600))
+        val tvTol = settingTitle("")
         fun showTol(v: Int) { tvTol.text = "Cuánto hay que leer bien: $v %" }
         showTol(Prefs.threshold(this))
-        c.add(tvTol, 14)
+        c.add(tvTol, 16)
         c.add(SeekBar(this).apply {
             max = 7
             progress = (Prefs.threshold(this@MainActivity) - 60) / 5
@@ -465,25 +446,25 @@ class MainActivity : Activity() {
                 Prefs.setThreshold(this@MainActivity, pct)
             })
         }, 6)
-        c.add(label("Si te quedás callado, vuelve a sonar a los", 16f, p.ink, Fonts.text(this, 600)), 18)
+        c.add(settingTitle("Si te quedás callado, vuelve a sonar a los"), 20)
         c.add(choices(listOf(15 to "15 s", 30 to "30 s", 60 to "60 s"), Prefs.silenceSec(this)) {
             Prefs.setSilence(this, it)
         }, 4)
 
         // Sonido
         section(c, "Sonido")
-        c.add(label("Volumen progresivo", 16f, p.ink, Fonts.text(this, 600)), 14)
+        c.add(settingTitle("Volumen progresivo"), 16)
         c.add(choices(listOf(0 to "No", 30 to "30 s", 60 to "1 min", 120 to "2 min"), Prefs.rampSec(this)) {
             Prefs.setRamp(this, it)
         }, 4)
-        c.add(label("Arranca bajito y sube hasta el máximo. Si vuelve a sonar por silencio, suena fuerte de entrada.", 13f, p.muted, Fonts.italic(this)), 2)
+        c.add(note("Arranca bajito y sube hasta el máximo. Si vuelve a sonar por silencio, suena fuerte de entrada."), 2)
 
         // Permisos
         section(c, "Permisos")
         permBox = col(this)
-        c.add(permBox, 4)
+        c.add(permBox, 2)
 
-        // Acerca de
+        // Emergencia
         section(c, "Salida de emergencia")
         c.add(label(
             "Si el micrófono falla o tenés una urgencia: en la pantalla de la alarma, mantené apretado " +
@@ -509,7 +490,7 @@ class MainActivity : Activity() {
                 id = ids[i]
                 this.text = text
                 textSize = 15f
-                typeface = Fonts.text(this@MainActivity)
+                typeface = Fonts.ui(this@MainActivity)
                 setTextColor(p.ink)
                 isChecked = value == current
                 setPadding(dp(2), 0, dp(10), 0)
@@ -575,25 +556,19 @@ class MainActivity : Activity() {
 
     private fun refreshPermissions() {
         permBox.removeAllViews()
-        val missing = perms().count { !it.ok }
-        tabs.getOrNull(2)?.let { t ->
-            val base = "Ajustes"
-            val label = if (missing > 0) "$base · $missing" else base
-            if (t.text.toString() != label) {
-                t.text = label
-                showTab(tab)
-            }
-        }
-        perms().forEach { pr ->
-            val r = row(this).apply { setPadding(0, dp(10), 0, dp(10)) }
+        val list = perms()
+        val missing = list.count { !it.ok }
+        tabs[2].text = if (missing > 0) "Ajustes · $missing" else "Ajustes"
+        list.forEach { pr ->
+            val r = row(this).apply { setPadding(0, dp(12), 0, dp(12)) }
             val texts = col(this)
-            texts.add(label(pr.name, 16f, if (pr.ok) p.ink else p.rubric, Fonts.text(this, 600)))
-            texts.add(label(if (pr.ok) "Listo. ${pr.why}" else pr.why, 13f, p.muted, Fonts.italic(this)), 2)
+            texts.add(label(pr.name, 16f, p.ink, Fonts.ui(this, 600)))
+            texts.add(label(if (pr.ok) "Listo. ${pr.why}" else pr.why, 13f, if (pr.ok) p.muted else p.warn), 2)
             r.add(texts, weight = 1f)
             if (!pr.ok && pr.fix != null) {
-                r.add(textButton("Activar", p.rubric) { pr.fix?.invoke() }, matchWidth = false)
+                r.add(textButton("Activar", p.accent) { pr.fix?.invoke() }, matchWidth = false)
             } else if (pr.ok) {
-                r.add(label("✓", 18f, p.muted), matchWidth = false)
+                r.add(label("✓", 18f, p.accent), matchWidth = false)
             }
             permBox.add(r)
             permBox.add(hairline(p))

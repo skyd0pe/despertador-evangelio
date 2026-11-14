@@ -4,14 +4,14 @@
 
     <!-- Los colores reales los pone el código según el tema elegido (Ui.kt → Palette). -->
     <style name="AppThemeLight" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@color/ic_bg</item>
-        <item name="android:colorAccent">#A3221B</item>
-        <item name="android:colorPrimary">#A3221B</item>
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:colorAccent">#7A5528</item>
+        <item name="android:colorPrimary">#7A5528</item>
     </style>
 
     <style name="AppThemeDark" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@android:color/black</item>
-        <item name="android:colorAccent">#E07A6E</item>
-        <item name="android:colorPrimary">#E07A6E</item>
+        <item name="android:windowBackground">@color/ic_bg</item>
+        <item name="android:colorAccent">#C9A06A</item>
+        <item name="android:colorPrimary">#C9A06A</item>
     </style>
 </resources>

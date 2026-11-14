@@ -20,7 +20,7 @@ App de Android: un despertador que no se apaga hasta que leés en voz alta el Ev
 - Modo ecuménico: oculta el calendario litúrgico y las fórmulas católicas; deja solo el texto bíblico.
 - Cuánto hay que leer bien, a los cuántos segundos de silencio vuelve a sonar y volumen progresivo.
 
-El color de la cinta sigue el tiempo litúrgico (verde, morado, blanco, rojo, rosa).
+Un punto de color marca el tiempo litúrgico (verde, morado, blanco, rojo, rosa). Al terminar de leer se suma un día a la racha.
 
 Los botones de volumen y "atrás" no apagan la alarma. Para emergencias, en la pantalla de la alarma
 hay que mantener apretado **Emergencia** durante 8 segundos.
@@ -30,4 +30,4 @@ hay que mantener apretado **Emergencia** durante 8 segundos.
 Cada cambio que se sube se compila solo. La última versión está en **Releases** → `Lazarus.apk`.
 Descargala desde el celular e instalala; las versiones nuevas se instalan encima sin perder los ajustes.
 
-Tipografías: Cormorant Garamond y Source Serif 4 (SIL Open Font License), descargadas al compilar.
+Tipografías de la marca: Fraunces, Inter y Literata (SIL Open Font License), descargadas al compilar.

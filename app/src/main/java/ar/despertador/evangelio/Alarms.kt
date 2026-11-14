@@ -32,7 +32,7 @@ data class Alarm(
         const val ALL = 0b1111111
         const val WEEKDAYS = 0b0011111
         const val WEEKEND = 0b1100000
-        val DAY_LETTERS = listOf("L", "M", "M", "J", "V", "S", "D")
+        val DAY_LETTERS = listOf("L", "M", "X", "J", "V", "S", "D")
         val DAY_NAMES = listOf("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
 
         /** Índice 0 = lunes … 6 = domingo, a partir de un Calendar. */

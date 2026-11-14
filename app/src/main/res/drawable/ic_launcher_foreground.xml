@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Ícono oficial de Lazarus (variante B): despertador en Oro viejo con la figura que se levanta hacia el sol. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:scaleX="0.21"
+        android:scaleY="0.21"
+        android:translateX="0.24"
+        android:translateY="0.24">
+        <path android:strokeColor="#C9A06A" android:strokeWidth="24" android:strokeLineCap="round"
+            android:pathData="M136,264a120,120 0,1 1,240 0a120,120 0,1 1,-240 0" />
+        <path android:strokeColor="#C9A06A" android:strokeWidth="24" android:strokeLineCap="round"
+            android:pathData="M140,184Q148,136 196,120" />
+        <path android:strokeColor="#C9A06A" android:strokeWidth="24" android:strokeLineCap="round"
+            android:pathData="M372,184Q364,136 316,120" />
+        <path android:strokeColor="#C9A06A" android:strokeWidth="24" android:strokeLineCap="round"
+            android:pathData="M182,368L164,392" />
+        <path android:strokeColor="#C9A06A" android:strokeWidth="24" android:strokeLineCap="round"
+            android:pathData="M330,368L348,392" />
+        <path android:strokeColor="#2C4470" android:strokeWidth="14" android:strokeLineCap="round"
+            android:pathData="M176,312L336,312" />
+        <path android:strokeColor="#FAF7F1" android:strokeWidth="18" android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M188,312H226C246,312 256,300 256,280V234" />
+        <path android:fillColor="#C9A06A"
+            android:pathData="M238,198a18,18 0,1 1,36 0a18,18 0,1 1,-36 0" />
+    </group>
+</vector>
