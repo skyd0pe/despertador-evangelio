@@ -122,7 +122,7 @@ class AlarmActivity : Activity(), RecognitionListener {
         }
         tvPct = label("0 % leído · meta $thresholdPct %", 13f, p.muted)
 
-        tvText = label("", 20f, p.muted, serif = true).apply {
+        tvText = label("", Prefs.fontSize(this).toFloat(), p.muted, serif = true).apply {
             setLineSpacing(0f, 1.4f)
             setPadding(dp(16), dp(14), dp(16), dp(14))
         }

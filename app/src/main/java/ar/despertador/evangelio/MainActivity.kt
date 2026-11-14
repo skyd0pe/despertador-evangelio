@@ -2,10 +2,12 @@ package ar.despertador.evangelio
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.app.NotificationManager
 import android.app.TimePickerDialog
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -21,14 +23,12 @@ import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
 import java.util.Calendar
-import java.util.Locale
 
 class MainActivity : Activity() {
 
     private lateinit var p: Palette
-    private lateinit var tvTime: TextView
-    private lateinit var swOn: Switch
     private lateinit var tvNext: TextView
+    private lateinit var alarmsBox: LinearLayout
     private lateinit var permBox: LinearLayout
     private lateinit var tvGTitle: TextView
     private lateinit var tvGRef: TextView
@@ -43,7 +43,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        refreshAlarm()
+        refreshAlarms()
         refreshPermissions()
     }
 
@@ -56,68 +56,17 @@ class MainActivity : Activity() {
         col.add(label("Despertador del Evangelio", 26f, p.fg, bold = true))
         col.add(label("Se apaga cuando leés en voz alta el Evangelio del día.", 15f, p.muted), 4)
 
-        // Alarma
-        val alarm = card(p)
-        alarm.add(eyebrow("Alarma", p))
-        tvTime = label("07:00", 60f, p.fg, bold = true).apply {
-            setOnClickListener { pickTime() }
-        }
-        alarm.add(tvTime, 2)
-        swOn = Switch(this).apply {
-            text = "Activada"
-            textSize = 16f
-            setTextColor(p.fg)
-            setOnCheckedChangeListener { _, on ->
-                if (on == Prefs.enabled(this@MainActivity)) return@setOnCheckedChangeListener
-                Prefs.setEnabled(this@MainActivity, on)
-                if (on) prefetch()
-                refreshAlarm()
-            }
-        }
-        alarm.add(swOn, 6)
-        tvNext = label("", 14f, p.muted)
-        alarm.add(tvNext, 4)
-        alarm.add(label("Tocá la hora para cambiarla. Suena todos los días.", 13f, p.muted), 8)
-        col.add(alarm, 18)
+        tvNext = label("", 15f, p.accent, bold = true)
+        col.add(tvNext, 14)
 
-        col.add(pillButton("Probar ahora", p.accent, p.onAccent) { testNow() }, 12)
+        // Alarmas
+        col.add(eyebrow("Alarmas", p), 18)
+        alarmsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.add(alarmsBox, 4)
+        col.add(pillButton("+ Agregar alarma", p.surface2, p.fg, p.line) { addAlarm() }, 10)
+        col.add(pillButton("Probar ahora", p.accent, p.onAccent) { testNow() }, 10)
 
-        // Ajustes
-        val adj = card(p)
-        adj.add(eyebrow("Ajustes", p))
-        val tvTol = label("", 15f, p.fg)
-        fun showTol(v: Int) { tvTol.text = "Cuánto hay que leer bien: $v %" }
-        showTol(Prefs.threshold(this))
-        adj.add(tvTol, 8)
-        adj.add(SeekBar(this).apply {
-            max = 7
-            progress = (Prefs.threshold(this@MainActivity) - 60) / 5
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(sb: SeekBar?, v: Int, fromUser: Boolean) {
-                    val pct = 60 + v * 5
-                    showTol(pct)
-                    Prefs.setThreshold(this@MainActivity, pct)
-                }
-                override fun onStartTrackingTouch(sb: SeekBar?) {}
-                override fun onStopTrackingTouch(sb: SeekBar?) {}
-            })
-        }, 4)
-        adj.add(label("Si te quedás callado, vuelve a sonar a los:", 15f, p.fg), 14)
-        val rg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
-        val current = Prefs.silenceSec(this)
-        listOf(15, 30, 60).forEach { s ->
-            rg.addView(RadioButton(this).apply {
-                id = 1000 + s
-                text = "$s s"
-                textSize = 15f
-                setTextColor(p.fg)
-                isChecked = s == current
-                setPadding(dp(4), 0, dp(16), 0)
-            })
-        }
-        rg.setOnCheckedChangeListener { _, id -> Prefs.setSilence(this, id - 1000) }
-        adj.add(rg, 4)
-        col.add(adj, 18)
+        col.add(settingsCard(), 18)
 
         // Permisos
         val perm = card(p)
@@ -155,41 +104,219 @@ class MainActivity : Activity() {
         })
     }
 
-    // ---------- alarma ----------
+    // ---------- ajustes ----------
 
-    private fun pickTime() {
-        TimePickerDialog(this, { _, h, m ->
-            Prefs.setTime(this, h, m)
-            if (!Prefs.enabled(this)) {
-                Prefs.setEnabled(this, true)
-                prefetch()
+    private fun settingsCard(): LinearLayout {
+        val adj = card(p)
+        adj.add(eyebrow("Ajustes", p))
+
+        // Cuánto hay que leer
+        val tvTol = label("", 15f, p.fg)
+        fun showTol(v: Int) { tvTol.text = "Cuánto hay que leer bien: $v %" }
+        showTol(Prefs.threshold(this))
+        adj.add(tvTol, 10)
+        adj.add(SeekBar(this).apply {
+            max = 7
+            progress = (Prefs.threshold(this@MainActivity) - 60) / 5
+            setOnSeekBarChangeListener(seek { v ->
+                val pct = 60 + v * 5
+                showTol(pct)
+                Prefs.setThreshold(this@MainActivity, pct)
+            })
+        }, 4)
+
+        // Silencio
+        adj.add(label("Si te quedás callado, vuelve a sonar a los:", 15f, p.fg), 16)
+        adj.add(choices(listOf(15 to "15 s", 30 to "30 s", 60 to "60 s"), Prefs.silenceSec(this)) {
+            Prefs.setSilence(this, it)
+        }, 4)
+
+        // Volumen progresivo
+        adj.add(label("Volumen progresivo (tarda en llegar al máximo):", 15f, p.fg), 16)
+        adj.add(choices(listOf(0 to "No", 30 to "30 s", 60 to "1 min", 120 to "2 min"), Prefs.rampSec(this)) {
+            Prefs.setRamp(this, it)
+        }, 4)
+        adj.add(label("Si vuelve a sonar porque te quedaste callado, suena fuerte de entrada.", 13f, p.muted), 2)
+
+        // Tamaño de letra con muestra
+        val tvFont = label("", 15f, p.fg)
+        val sample = label(
+            "Bienaventurados los pobres en espíritu: porque de ellos es el reino de los cielos.",
+            Prefs.fontSize(this).toFloat(), p.fg, serif = true
+        ).apply {
+            setLineSpacing(0f, 1.4f)
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(12).toFloat()
+                setColor(p.surface2)
+                setStroke(dp(1), p.line)
             }
-            refreshAlarm()
-        }, Prefs.hour(this), Prefs.minute(this), true).show()
+        }
+        fun showFont(v: Int) {
+            tvFont.text = "Tamaño de la letra del Evangelio: $v"
+            sample.textSize = v.toFloat()
+        }
+        showFont(Prefs.fontSize(this))
+        adj.add(tvFont, 16)
+        adj.add(SeekBar(this).apply {
+            max = 8 // 16 a 32, de a 2
+            progress = (Prefs.fontSize(this@MainActivity) - 16) / 2
+            setOnSeekBarChangeListener(seek { v ->
+                val size = 16 + v * 2
+                showFont(size)
+                Prefs.setFontSize(this@MainActivity, size)
+            })
+        }, 4)
+        adj.add(label("Así se va a ver al despertarte:", 13f, p.muted), 6)
+        adj.add(sample, 4)
+        return adj
     }
 
-    private fun refreshAlarm() {
-        tvTime.text = String.format(Locale.US, "%02d:%02d", Prefs.hour(this), Prefs.minute(this))
-        val on = Prefs.enabled(this)
-        swOn.isChecked = on
-        tvTime.setTextColor(if (on) p.fg else p.muted)
-        if (!on) {
-            AlarmScheduler.cancel(this)
-            tvNext.text = "Apagada"
-            tvNext.setTextColor(p.muted)
-            return
+    private fun seek(onChange: (Int) -> Unit) = object : SeekBar.OnSeekBarChangeListener {
+        override fun onProgressChanged(sb: SeekBar?, v: Int, fromUser: Boolean) = onChange(v)
+        override fun onStartTrackingTouch(sb: SeekBar?) {}
+        override fun onStopTrackingTouch(sb: SeekBar?) {}
+    }
+
+    private fun choices(opts: List<Pair<Int, String>>, current: Int, onPick: (Int) -> Unit): RadioGroup {
+        val rg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
+        val ids = opts.map { android.view.View.generateViewId() }
+        opts.forEachIndexed { i, (value, text) ->
+            rg.addView(RadioButton(this).apply {
+                id = ids[i]
+                this.text = text
+                textSize = 15f
+                setTextColor(p.fg)
+                isChecked = value == current
+                setPadding(dp(2), 0, dp(12), 0)
+            })
         }
-        if (!AlarmScheduler.schedule(this)) {
-            tvNext.text = "No se pudo programar: falta el permiso de alarmas exactas (abajo)."
-            tvNext.setTextColor(p.miss)
-            return
+        rg.setOnCheckedChangeListener { _, checked ->
+            val i = ids.indexOf(checked)
+            if (i >= 0) onPick(opts[i].first)
         }
-        val t = Calendar.getInstance().apply { timeInMillis = AlarmScheduler.nextTrigger(this@MainActivity) }
+        return rg
+    }
+
+    // ---------- alarmas ----------
+
+    private fun refreshAlarms() {
+        val ok = AlarmScheduler.scheduleAll(this)
+        alarmsBox.removeAllViews()
+        AlarmStore.all(this).forEach { alarmsBox.add(alarmCard(it), 10) }
+
+        val next = AlarmScheduler.next(this)
+        when {
+            !ok -> {
+                tvNext.text = "No se pueden programar: falta el permiso de alarmas exactas (abajo)."
+                tvNext.setTextColor(p.miss)
+            }
+            next == null -> {
+                tvNext.text = "No hay alarmas activadas."
+                tvNext.setTextColor(p.muted)
+            }
+            else -> {
+                tvNext.text = "Próxima: " + whenText(next.second)
+                tvNext.setTextColor(p.accent)
+            }
+        }
+    }
+
+    private fun whenText(t: Long): String {
+        val cal = Calendar.getInstance().apply { timeInMillis = t }
         val today = Calendar.getInstance()
-        val day = if (t.get(Calendar.DAY_OF_YEAR) == today.get(Calendar.DAY_OF_YEAR)) "hoy" else "mañana"
-        val mins = ((t.timeInMillis - System.currentTimeMillis()) / 60000).toInt()
-        tvNext.text = "Suena $day a las ${tvTime.text} (en ${mins / 60} h ${mins % 60} min)"
-        tvNext.setTextColor(p.accent)
+        val tomorrow = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
+        val sameDay = { a: Calendar, b: Calendar ->
+            a.get(Calendar.YEAR) == b.get(Calendar.YEAR) && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)
+        }
+        val day = when {
+            sameDay(cal, today) -> "hoy"
+            sameDay(cal, tomorrow) -> "mañana"
+            else -> "el " + listOf("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")[Alarm.dayIndex(cal)]
+        }
+        val hhmm = String.format(java.util.Locale.US, "%02d:%02d", cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
+        val mins = ((t - System.currentTimeMillis()) / 60000).toInt()
+        return "$day a las $hhmm (en ${mins / 60} h ${mins % 60} min)"
+    }
+
+    private fun alarmCard(a: Alarm): LinearLayout {
+        val c = card(p)
+
+        val top = row(this)
+        val tvTime = label(a.timeText(), 44f, if (a.enabled) p.fg else p.muted, bold = true).apply {
+            setOnClickListener { editTime(a) }
+        }
+        top.add(tvTime, weight = 1f)
+        top.add(Switch(this).apply {
+            isChecked = a.enabled
+            setOnCheckedChangeListener { _, on ->
+                AlarmStore.upsert(this@MainActivity, a.copy(enabled = on))
+                if (on) prefetch()
+                refreshAlarms()
+            }
+        }, matchWidth = false)
+        c.add(top)
+
+        // Días: L M M J V S D
+        val days = row(this)
+        for (i in 0..6) {
+            val on = a.hasDay(i)
+            val chip = label(Alarm.DAY_LETTERS[i], 15f, if (on) p.onAccent else p.fg, bold = true).apply {
+                gravity = Gravity.CENTER
+                setPadding(0, dp(9), 0, dp(9))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(10).toFloat()
+                    setColor(if (on) p.accent else p.surface2)
+                    if (!on) setStroke(dp(1), p.line)
+                }
+                contentDescription = Alarm.DAY_NAMES[i] + if (on) ", activado" else ", desactivado"
+                setOnClickListener {
+                    AlarmStore.upsert(this@MainActivity, a.copy(days = a.days xor (1 shl i)))
+                    refreshAlarms()
+                }
+            }
+            val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            if (i > 0) lp.leftMargin = dp(6)
+            days.addView(chip, lp)
+        }
+        c.add(days, 10)
+
+        val bottom = row(this)
+        bottom.add(label(a.daysText(), 14f, p.muted), weight = 1f)
+        bottom.add(label("Borrar", 14f, p.miss, bold = true).apply {
+            setPadding(dp(12), dp(8), 0, dp(8))
+            setOnClickListener { confirmDelete(a) }
+        }, matchWidth = false)
+        c.add(bottom, 6)
+        return c
+    }
+
+    private fun editTime(a: Alarm) {
+        TimePickerDialog(this, { _, h, m ->
+            AlarmStore.upsert(this, a.copy(hour = h, minute = m, enabled = true))
+            prefetch()
+            refreshAlarms()
+        }, a.hour, a.minute, true).show()
+    }
+
+    private fun addAlarm() {
+        TimePickerDialog(this, { _, h, m ->
+            AlarmStore.create(this, h, m)
+            prefetch()
+            refreshAlarms()
+        }, 7, 0, true).show()
+    }
+
+    private fun confirmDelete(a: Alarm) {
+        AlertDialog.Builder(this)
+            .setMessage("¿Borrar la alarma de las ${a.timeText()}?")
+            .setPositiveButton("Borrar") { _, _ ->
+                AlarmScheduler.cancel(this, a.id)
+                AlarmStore.delete(this, a.id)
+                refreshAlarms()
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
     }
 
     private fun testNow() {

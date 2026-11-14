@@ -13,7 +13,9 @@ import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -46,6 +48,24 @@ class AlarmService : Service() {
     private var vibrator: Vibrator? = null
     private var wake: PowerManager.WakeLock? = null
     private var sounding = false
+    private var vibrating = false
+    private val h = Handler(Looper.getMainLooper())
+    private var rampStart = 0L
+
+    /** Sube el volumen de a poco; la vibración arranca a mitad de camino. */
+    private val rampStep = object : Runnable {
+        override fun run() {
+            if (!sounding) return
+            val secs = Prefs.rampSec(this@AlarmService).coerceAtLeast(1)
+            val f = ((System.currentTimeMillis() - rampStart) / (secs * 1000f)).coerceIn(0.05f, 1f)
+            try {
+                player?.setVolume(f, f)
+            } catch (e: Exception) {
+            }
+            if (f >= 0.5f) vibrate()
+            if (f < 1f) h.postDelayed(this, 400)
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -62,7 +82,7 @@ class AlarmService : Service() {
                 acquire(60 * 60 * 1000L)
             }
             raiseVolume()
-            ring()
+            ring(gentle = true)
         }
         openScreen()
         return START_STICKY
@@ -125,19 +145,38 @@ class AlarmService : Service() {
         }
     }
 
-    /** Suena (o vuelve a sonar). */
-    fun ring() {
+    /**
+     * Suena (o vuelve a sonar). [gentle] = la primera vez, con volumen progresivo si está activado.
+     * Cuando vuelve a sonar por silencio, suena fuerte de entrada.
+     */
+    fun ring(gentle: Boolean = false) {
         sounding = true
+        h.removeCallbacks(rampStep)
+        val ramp = gentle && Prefs.rampSec(this) > 0
         try {
             val p = player ?: createPlayer()
-            if (p != null && !p.isPlaying) p.start()
+            if (p != null) {
+                p.setVolume(if (ramp) 0.05f else 1f, if (ramp) 0.05f else 1f)
+                if (!p.isPlaying) p.start()
+            }
         } catch (e: Exception) {
         }
+        if (ramp) {
+            rampStart = System.currentTimeMillis()
+            h.post(rampStep)
+        } else {
+            vibrate()
+        }
+    }
+
+    private fun vibrate() {
+        if (vibrating) return
         try {
             val v = vibrator ?: (getSystemService(Context.VIBRATOR_SERVICE) as Vibrator).also { vibrator = it }
             val attrs = AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build()
             @Suppress("DEPRECATION")
             v.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 700, 700), 0), attrs)
+            vibrating = true
         } catch (e: Exception) {
         }
     }
@@ -145,6 +184,8 @@ class AlarmService : Service() {
     /** Silencio mientras se lee. */
     fun mute() {
         sounding = false
+        h.removeCallbacks(rampStep)
+        vibrating = false
         try {
             player?.let { if (it.isPlaying) it.pause() }
         } catch (e: Exception) {
@@ -184,6 +225,8 @@ class AlarmService : Service() {
 
     fun stopAll() {
         sounding = false
+        vibrating = false
+        h.removeCallbacks(rampStep)
         instance = null
         try {
             player?.stop()
@@ -199,6 +242,7 @@ class AlarmService : Service() {
     }
 
     override fun onDestroy() {
+        h.removeCallbacks(rampStep)
         if (instance === this) instance = null
         player?.release()
         player = null
