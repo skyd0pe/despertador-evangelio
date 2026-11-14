@@ -30,4 +30,10 @@ hay que mantener apretado **Emergencia** durante 8 segundos.
 Cada cambio que se sube se compila solo. La última versión está en **Releases** → `Lazarus.apk`.
 Descargala desde el celular e instalala; las versiones nuevas se instalan encima sin perder los ajustes.
 
-Tipografías de la marca: Fraunces, Inter y Literata (SIL Open Font License), descargadas al compilar.
+Tipografías de la marca: Fraunces, Inter y Literata (SIL Open Font License), incluidas en `app/src/main/assets/fonts` con sus licencias.
+
+## Firma
+
+La app se firma con la clave privada `app/lazarus.p12`, cifrada con AES-256. Su contraseña está solo
+en el secreto `LAZARUS_KEY_PASSWORD` del repositorio. La compilación se detiene si falta el secreto o
+si el instalador no queda firmado con esa clave (huella SHA-256 `6b14a077…6b41f9`).

@@ -15,19 +15,26 @@ android {
         versionName = "1.0." + (System.getenv("GITHUB_RUN_NUMBER") ?: "0")
     }
 
-    // Clave fija: así cada versión nueva se instala encima de la anterior.
+    // Firma: clave privada propia de Lazarus. El archivo lazarus.p12 está cifrado con AES-256 y
+    // su contraseña solo existe como secreto de GitHub (LAZARUS_KEY_PASSWORD). Sin la contraseña
+    // la clave no sirve, así que nadie puede firmar una versión falsa que Android acepte como Lazarus.
+    val keyPassword = System.getenv("LAZARUS_KEY_PASSWORD")
     signingConfigs {
-        getByName("debug") {
-            storeFile = file("debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+        if (!keyPassword.isNullOrEmpty()) {
+            create("lazarus") {
+                storeFile = file("lazarus.p12")
+                storeType = "PKCS12"
+                storePassword = keyPassword
+                keyAlias = "lazarus"
+                this.keyPassword = keyPassword
+            }
         }
     }
 
     buildTypes {
         getByName("debug") {
-            signingConfig = signingConfigs.getByName("debug")
+            // Sin la contraseña (por ejemplo, compilando en una PC) usa la firma de prueba de Android.
+            if (!keyPassword.isNullOrEmpty()) signingConfig = signingConfigs.getByName("lazarus")
         }
         getByName("release") {
             isMinifyEnabled = false
