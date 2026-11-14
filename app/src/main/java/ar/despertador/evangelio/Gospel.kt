@@ -22,7 +22,7 @@ data class Gospel(
  * Se guarda en el teléfono para que la alarma funcione aunque no haya internet.
  */
 object GospelRepo {
-    private const val BASE = "https://feed.evangelizo.org/v2/reader.php"
+    const val BASE = "https://feed.evangelizo.org/v2/reader.php"
 
     fun key(cal: Calendar): String = String.format(
         Locale.US, "%04d%02d%02d",
@@ -80,8 +80,10 @@ object GospelRepo {
         var ok = 0
         for (d in week()) {
             if (cached(c, d) != null || fetch(c, d) != null) ok++
+            VerseRepo.sync(c, d)
         }
         prune(c)
+        VerseRepo.prune(c, week().toSet())
         return ok
     }
 
@@ -107,11 +109,11 @@ object GospelRepo {
     fun loadOrFetch(c: Context, date: String): Gospel =
         cached(c, date) ?: fetch(c, date) ?: fallback(date)
 
-    private fun get(url: String): String {
+    fun get(url: String): String {
         val conn = URL(url).openConnection() as HttpURLConnection
         conn.connectTimeout = 8000
         conn.readTimeout = 8000
-        conn.setRequestProperty("User-Agent", "DespertadorEvangelio/1.0 (Android)")
+        conn.setRequestProperty("User-Agent", "Lazarus/1.0 (Android)")
         try {
             if (conn.responseCode !in 200..299) throw IOException("HTTP ${conn.responseCode}")
             return conn.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
@@ -120,7 +122,7 @@ object GospelRepo {
         }
     }
 
-    private fun html(s: String): String = Html.fromHtml(s, Html.FROM_HTML_MODE_LEGACY).toString()
+    fun html(s: String): String = Html.fromHtml(s, Html.FROM_HTML_MODE_LEGACY).toString()
 
     fun clean(raw: String): String {
         var t = html(raw)

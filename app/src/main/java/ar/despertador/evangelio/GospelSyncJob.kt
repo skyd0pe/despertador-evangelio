@@ -16,6 +16,7 @@ class GospelSyncJob : JobService() {
     override fun onStartJob(params: JobParameters): Boolean {
         Thread {
             val ok = GospelRepo.syncWeek(this)
+            LockVerse.update(this)
             jobFinished(params, ok < 7) // si faltó alguno, Android lo reintenta más tarde
         }.start()
         return true

@@ -23,6 +23,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -69,6 +70,13 @@ class MainActivity : Activity() {
     private var update: Updater.Info? = null
     private var updating = false
 
+    // Versículo en la pantalla de bloqueo
+    private lateinit var lockSwitch: Switch
+    private lateinit var lockPreview: ImageView
+    private lateinit var lockNext: TextView
+    private lateinit var lockStatus: TextView
+    private var lockBusy = false
+
     // Gestos para pasar de pestaña
     private lateinit var swipe: GestureDetector
     private var swipeBlocked = false
@@ -103,6 +111,10 @@ class MainActivity : Activity() {
         refreshAlarms()
         refreshPermissions()
         refreshWelcome()
+        Thread {
+            LockVerse.update(this)
+            runOnUiThread { refreshLockPreview() }
+        }.start()
     }
 
     private val ecumenical get() = Prefs.ecumenical(this)
@@ -515,6 +527,50 @@ class MainActivity : Activity() {
         c.add(note("Así se ve al despertarte:"), 8)
         c.add(sample, 6)
 
+        // Pantalla de bloqueo
+        section(c, "Pantalla de bloqueo")
+        val lockRow = row(this)
+        lockRow.add(settingTitle("Versículo del día"), weight = 1f)
+        lockSwitch = Switch(this).apply {
+            isChecked = LockVerse.enabled(this@MainActivity)
+            contentDescription = "Versículo del día en la pantalla de bloqueo"
+            setOnCheckedChangeListener { _, on -> toggleLockVerse(on) }
+        }
+        tintSwitch(p, lockSwitch)
+        lockRow.add(lockSwitch, matchWidth = false)
+        c.add(lockRow, 16)
+        c.add(note(
+            "Cada día pone un versículo distinto como fondo de la pantalla de bloqueo. Sale de las lecturas " +
+                "del día: salmos, profetas, cartas y Evangelios. Al desactivarlo, la pantalla de bloqueo " +
+                "vuelve a mostrar tu fondo de inicio."
+        ), 2)
+        lockStatus = note("")
+        lockStatus.setTextColor(p.warn)
+        lockStatus.visibility = View.GONE
+        c.add(lockStatus, 8)
+        val (scrW, scrH) = LockVerse.screenSize(this)
+        lockPreview = ImageView(this).apply {
+            scaleType = ImageView.ScaleType.FIT_XY
+            background = rounded(p.surface, 18f)
+            clipToOutline = true
+            contentDescription = "Vista previa de la pantalla de bloqueo"
+            layoutParams = LinearLayout.LayoutParams(dp(150), (dp(150) * scrH.toFloat() / scrW).toInt())
+            visibility = View.GONE
+        }
+        val previewRow = row(this).apply { gravity = Gravity.CENTER_HORIZONTAL }
+        previewRow.add(lockPreview, matchWidth = false)
+        c.add(previewRow, 14)
+        lockNext = textButton("Otro versículo", p.accent) { nextLockVerse() }.apply {
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+        }
+        c.add(lockNext, 4)
+        if (!LockVerse.supported(this)) {
+            lockSwitch.isEnabled = false
+            lockStatus.text = "Este celular no deja que las apps cambien el fondo de la pantalla de bloqueo."
+            lockStatus.visibility = View.VISIBLE
+        }
+
         // Tradición
         section(c, "Tradición")
         val ecuRow = row(this)
@@ -525,6 +581,10 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on ->
                 Prefs.setEcumenical(this@MainActivity, on)
                 showGospel(gospel)
+                Thread {
+                    LockVerse.update(this@MainActivity)
+                    runOnUiThread { refreshLockPreview() }
+                }.start()
             }
         }
         tintSwitch(p, sw)
@@ -746,6 +806,68 @@ class MainActivity : Activity() {
         }
         c.add(btn, 14)
         updateBox.add(c, 20)
+    }
+
+    // =====================================================================
+    // Versículo en la pantalla de bloqueo
+    // =====================================================================
+
+    private fun toggleLockVerse(on: Boolean) {
+        if (lockBusy) return
+        lockBusy = true
+        lockSwitch.isEnabled = false
+        lockStatus.visibility = View.GONE
+        Thread {
+            val ok = LockVerse.setEnabled(this, on)
+            runOnUiThread {
+                lockBusy = false
+                lockSwitch.isEnabled = true
+                if (on && !ok) {
+                    lockStatus.text = "No se pudo poner el versículo. Revisá la conexión a internet y probá de nuevo."
+                    lockStatus.visibility = View.VISIBLE
+                } else if (on) {
+                    showToast("Listo", "Bloqueá el celular para ver el versículo de hoy.")
+                }
+                refreshLockPreview()
+            }
+        }.start()
+    }
+
+    private fun nextLockVerse() {
+        if (lockBusy) return
+        lockBusy = true
+        lockNext.text = "Cambiando…"
+        Thread {
+            val ok = LockVerse.next(this)
+            runOnUiThread {
+                lockBusy = false
+                lockNext.text = "Otro versículo"
+                if (!ok) showToast("No se pudo cambiar", "Revisá la conexión a internet.")
+                refreshLockPreview()
+            }
+        }.start()
+    }
+
+    /** Muestra en chico cómo queda la pantalla de bloqueo hoy. */
+    private fun refreshLockPreview() {
+        if (!::lockPreview.isInitialized) return
+        val on = LockVerse.enabled(this)
+        lockNext.visibility = if (on) View.VISIBLE else View.GONE
+        if (!on) {
+            lockPreview.visibility = View.GONE
+            return
+        }
+        val (sw, sh) = LockVerse.screenSize(this)
+        val w = 450
+        val h = (w * sh.toFloat() / sw).toInt()
+        Thread {
+            val v = LockVerse.today(this) ?: return@Thread
+            val bmp = LockVerse.render(this, v, w, h)
+            runOnUiThread {
+                lockPreview.setImageBitmap(bmp)
+                lockPreview.visibility = View.VISIBLE
+            }
+        }.start()
     }
 
     // ---------- permisos ----------

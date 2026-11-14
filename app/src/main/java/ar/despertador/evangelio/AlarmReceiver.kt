@@ -37,5 +37,6 @@ class BootReceiver : BroadcastReceiver() {
         if (intent.action !in allowed) return
         AlarmScheduler.scheduleAll(c)
         GospelSyncJob.schedule(c)
+        LockVerse.schedule(c)
     }
 }
