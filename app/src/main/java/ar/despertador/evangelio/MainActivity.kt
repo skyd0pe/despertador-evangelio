@@ -59,6 +59,16 @@ class MainActivity : Activity() {
     private lateinit var permBox: LinearLayout
     private var showPermDetail = false
 
+    // Bienvenida, versión nueva y avisos
+    private lateinit var welcomeBox: LinearLayout
+    private lateinit var updateBox: LinearLayout
+    private lateinit var toast: LinearLayout
+    private lateinit var tvToastTitle: TextView
+    private lateinit var tvToastBody: TextView
+    private lateinit var tvVersion: TextView
+    private var update: Updater.Info? = null
+    private var updating = false
+
     // Gestos para pasar de pestaña
     private lateinit var swipe: GestureDetector
     private var swipeBlocked = false
@@ -73,6 +83,14 @@ class MainActivity : Activity() {
         setupSwipe()
         showTab(tab, animate = false)
         loadGospel(force = false)
+        GospelSyncJob.schedule(this)
+        Thread { GospelRepo.syncWeek(this) }.start()
+        checkUpdate(manual = false)
+    }
+
+    override fun onPause() {
+        super.onPause()
+        Sounds.stopPreview()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -84,6 +102,7 @@ class MainActivity : Activity() {
         super.onResume()
         refreshAlarms()
         refreshPermissions()
+        refreshWelcome()
     }
 
     private val ecumenical get() = Prefs.ecumenical(this)
@@ -100,6 +119,20 @@ class MainActivity : Activity() {
         pages.forEach {
             content.addView(it, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         }
+
+        toast = col(this).apply {
+            setPadding(dp(18), dp(14), dp(18), dp(14))
+            background = rounded(p.surface, 16f, p.rule)
+            elevation = dpf(6f)
+            visibility = View.GONE
+        }
+        tvToastTitle = label("", 16f, p.ink, Fonts.ui(this, 600))
+        tvToastBody = label("", 14f, p.muted)
+        toast.add(tvToastTitle)
+        toast.add(tvToastBody, 2)
+        content.addView(toast, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM).apply {
+            setMargins(dp(16), 0, dp(16), dp(16))
+        })
 
         val nav = row(this).apply { setPadding(dp(12), 0, dp(12), dp(8)) }
         tabs = listOf("Alarmas", "Evangelio", "Ajustes").mapIndexed { i, name ->
@@ -199,6 +232,11 @@ class MainActivity : Activity() {
         c.add(label("Lazarus", 36f, p.ink, Fonts.display(this, 500, 72)))
         c.add(label("Levantate y escuchá.", 16f, p.muted, Fonts.display(this, 400, 24)), 2)
 
+        updateBox = col(this)
+        c.add(updateBox, 0)
+        welcomeBox = col(this)
+        c.add(welcomeBox, 0)
+
         val next = card(p)
         next.add(eyebrow("Próxima alarma", p))
         tvNextTime = label("--:--", 56f, p.ink, Fonts.display(this, 400, 144)).apply {
@@ -259,6 +297,7 @@ class MainActivity : Activity() {
         }
         val n = Streak.current(this)
         tvNextStreak.text = if (n == 0) "Mañana puede empezar tu racha." else Streak.phrase(n)
+        if (::welcomeBox.isInitialized) refreshWelcome()
     }
 
     /** "Mañana · en 5 h 41 min". */
@@ -298,6 +337,7 @@ class MainActivity : Activity() {
                 AlarmStore.upsert(this@MainActivity, a.copy(enabled = on))
                 if (on) prefetch()
                 refreshAlarms()
+                if (on) sleepNote(a.copy(enabled = true))
             }
         }
         tintSwitch(p, sw)
@@ -325,17 +365,20 @@ class MainActivity : Activity() {
 
     private fun editTime(a: Alarm) {
         TimePickerDialog(this, p.dialogTheme, { _, h, m ->
-            AlarmStore.upsert(this, a.copy(hour = h, minute = m, enabled = true))
+            val changed = a.copy(hour = h, minute = m, enabled = true)
+            AlarmStore.upsert(this, changed)
             prefetch()
             refreshAlarms()
+            sleepNote(changed)
         }, a.hour, a.minute, true).show()
     }
 
     private fun addAlarm() {
         TimePickerDialog(this, p.dialogTheme, { _, h, m ->
-            AlarmStore.create(this, h, m)
+            val created = AlarmStore.create(this, h, m)
             prefetch()
             refreshAlarms()
+            sleepNote(created)
         }, 7, 0, true).show()
     }
 
@@ -352,6 +395,7 @@ class MainActivity : Activity() {
     }
 
     private fun testNow() {
+        Prefs.setTested(this)
         AlarmService.start(this)
         startActivity(Intent(this, AlarmActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
@@ -378,7 +422,7 @@ class MainActivity : Activity() {
         c.add(textButton("Actualizar", p.accent) { loadGospel(force = true) }, 18)
         c.add(label(
             "Texto bíblico: El Libro del Pueblo de Dios, vía evangeliodeldia.org. " +
-                "Se baja la noche anterior, así suena aunque no haya internet.",
+                "La app guarda los de toda la semana, así suena aunque no haya internet.",
             13f, p.muted
         ), 4)
         return c
@@ -408,17 +452,14 @@ class MainActivity : Activity() {
     }
 
     private fun prefetch() {
-        Thread {
-            GospelRepo.fetch(this, GospelRepo.today())
-            GospelRepo.fetch(this, GospelRepo.tomorrow())
-        }.start()
+        Thread { GospelRepo.syncWeek(this) }.start()
     }
 
     private fun loadGospel(force: Boolean) {
         Thread {
             val date = GospelRepo.today()
             val g = (if (force) null else GospelRepo.cached(this, date)) ?: GospelRepo.fetch(this, date)
-            GospelRepo.fetch(this, GospelRepo.tomorrow())
+            GospelRepo.syncWeek(this)
             runOnUiThread { showGospel(g) }
         }.start()
     }
@@ -517,7 +558,13 @@ class MainActivity : Activity() {
 
         // Sonido
         section(c, "Sonido")
-        c.add(settingTitle("Volumen progresivo"), 16)
+        c.add(settingTitle("Sonido de la alarma"), 16)
+        c.add(choices(Sounds.all.map { it.key to it.label }, Prefs.sound(this), vertical = true) {
+            Prefs.setSound(this, it)
+            Sounds.preview(this, it)
+        }, 4)
+        c.add(note("Al elegir uno, suena unos segundos al volumen de la alarma."), 2)
+        c.add(settingTitle("Volumen progresivo"), 22)
         c.add(choices(listOf(0 to "No", 30 to "30 s", 60 to "1 min", 120 to "2 min"), Prefs.rampSec(this)) {
             Prefs.setRamp(this, it)
         }, 4)
@@ -527,6 +574,12 @@ class MainActivity : Activity() {
         section(c, "Permisos")
         permBox = col(this)
         c.add(permBox, 2)
+
+        // Versión
+        section(c, "Versión")
+        tvVersion = label("Lazarus ${Updater.currentName(this)}", 15f, p.ink)
+        c.add(tvVersion, 12)
+        c.add(textButton("Buscar actualizaciones", p.accent) { checkUpdate(manual = true) }, 2)
 
         // Emergencia
         section(c, "Salida de emergencia")
@@ -546,8 +599,8 @@ class MainActivity : Activity() {
         override fun onStopTrackingTouch(sb: SeekBar?) {}
     }
 
-    private fun <T> choices(opts: List<Pair<T, String>>, current: T, onPick: (T) -> Unit): RadioGroup {
-        val rg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
+    private fun <T> choices(opts: List<Pair<T, String>>, current: T, vertical: Boolean = false, onPick: (T) -> Unit): RadioGroup {
+        val rg = RadioGroup(this).apply { orientation = if (vertical) RadioGroup.VERTICAL else RadioGroup.HORIZONTAL }
         val ids = opts.map { View.generateViewId() }
         opts.forEachIndexed { i, (value, text) ->
             rg.addView(RadioButton(this).apply {
@@ -557,7 +610,7 @@ class MainActivity : Activity() {
                 typeface = Fonts.ui(this@MainActivity)
                 setTextColor(p.ink)
                 isChecked = value == current
-                setPadding(dp(2), 0, dp(10), 0)
+                setPadding(dp(2), if (vertical) dp(6) else 0, dp(10), if (vertical) dp(6) else 0)
                 tintRadio(p, this)
             })
         }
@@ -566,6 +619,133 @@ class MainActivity : Activity() {
             if (i >= 0) onPick(opts[i].first)
         }
         return rg
+    }
+
+    // =====================================================================
+    // Aviso de cuánto falta, bienvenida y versiones nuevas
+    // =====================================================================
+
+    private val hideToast = Runnable {
+        toast.animate().alpha(0f).setDuration(200).withEndAction { toast.visibility = View.GONE }.start()
+    }
+
+    private fun showToast(title: String, body: String) {
+        tvToastTitle.text = title
+        tvToastBody.text = body
+        tvToastBody.visibility = if (body.isBlank()) View.GONE else View.VISIBLE
+        toast.removeCallbacks(hideToast)
+        toast.alpha = 0f
+        toast.visibility = View.VISIBLE
+        toast.animate().alpha(1f).setDuration(180).start()
+        toast.postDelayed(hideToast, 4500)
+    }
+
+    /** "Suena en 7 h 12 min": así se ve enseguida si la hora quedó bien. */
+    private fun sleepNote(a: Alarm) {
+        val mins = ((AlarmScheduler.nextTrigger(a) - System.currentTimeMillis()) / 60000).toInt().coerceAtLeast(0)
+        val dur = if (mins >= 60) "${mins / 60} h ${mins % 60} min" else "$mins min"
+        showToast("Suena en $dur", "Si te acostás ahora, dormís $dur.")
+    }
+
+    private fun refreshWelcome() {
+        welcomeBox.removeAllViews()
+        if (Prefs.welcomeDismissed(this)) return
+
+        val permsOk = perms().all { it.ok }
+        val hasAlarm = AlarmStore.all(this).any { it.enabled }
+        val tested = Prefs.tested(this)
+
+        val c = card(p)
+        val head = row(this).apply { gravity = Gravity.TOP }
+        head.add(label("Bienvenido a Lazarus", 22f, p.ink, Fonts.display(this, 500, 36)), weight = 1f)
+        head.add(label("✕", 18f, p.muted).apply {
+            gravity = Gravity.CENTER
+            minWidth = dp(44)
+            minHeight = dp(44)
+            contentDescription = "Cerrar la bienvenida"
+            setOnClickListener {
+                Prefs.setWelcomeDismissed(this@MainActivity)
+                refreshWelcome()
+            }
+        }, matchWidth = false)
+        c.add(head)
+        c.add(label("Tres pasos para que mañana te despierte la Palabra:", 15f, p.muted), 2)
+
+        fun step(n: Int, title: String, body: String, done: Boolean, action: String?, onTap: (() -> Unit)?) {
+            val r = row(this).apply { gravity = Gravity.TOP }
+            r.add(dayDot(if (done) "✓" else "$n", done, p, 28), matchWidth = false)
+            val t = col(this).apply { setPadding(dp(12), 0, 0, 0) }
+            t.add(label(title, 16f, if (done) p.muted else p.ink, Fonts.ui(this, 600)))
+            t.add(label(body, 13f, p.muted), 2)
+            if (!done && action != null && onTap != null) t.add(textButton(action, p.accent, onTap), 0)
+            r.add(t, weight = 1f)
+            c.add(r, 16)
+        }
+        step(1, "Activá los permisos", "Para que suene con el celular bloqueado y pueda escucharte.",
+            permsOk, "Ir a los permisos") { showTab(2) }
+        step(2, "Creá tu alarma", "Elegí la hora y los días en que querés levantarte.",
+            hasAlarm, "Crear una alarma") { addAlarm() }
+        step(3, "Probala una vez", "Leé el Evangelio de hoy en voz alta hasta que se apague.",
+            tested, "Probar ahora") { testNow() }
+        if (permsOk && hasAlarm && tested) {
+            c.add(label("Listo. Ya podés cerrar esta ventana con la X.", 14f, p.accent, Fonts.ui(this, 600)), 14)
+        }
+        welcomeBox.add(c, 20)
+    }
+
+    /** Busca una versión nueva. Si [manual], avisa también cuando no hay. */
+    private fun checkUpdate(manual: Boolean) {
+        if (manual) showToast("Buscando actualizaciones…", "")
+        Thread {
+            val info = Updater.check(this)
+            runOnUiThread {
+                update = info
+                refreshUpdate()
+                if (manual) {
+                    if (info == null) showToast("Tenés la última versión", "Lazarus ${Updater.currentName(this)}.")
+                    else { showTab(0); showToast("Hay una versión nueva", "Está arriba de todo, en Alarmas.") }
+                }
+            }
+        }.start()
+    }
+
+    private fun refreshUpdate() {
+        updateBox.removeAllViews()
+        val info = update ?: return
+        val c = card(p)
+        c.add(eyebrow("Versión nueva", p))
+        c.add(label("Lazarus ${info.tag.removePrefix("v")} está lista", 18f, p.ink, Fonts.display(this, 500, 36)), 6)
+        val status = label("Se instala encima de la actual: no perdés alarmas ni ajustes.", 13f, p.muted)
+        c.add(status, 4)
+        val btn = pill("Actualizar", p.primaryBg, p.primaryFg) {}
+        btn.setOnClickListener {
+            if (updating) return@setOnClickListener
+            if (!Updater.canInstall(this)) {
+                status.text = "Android pide permiso una sola vez: activá “Permitir de esta fuente” y volvé."
+                status.setTextColor(p.warn)
+                Updater.askInstallPermission(this)
+                return@setOnClickListener
+            }
+            updating = true
+            btn.isEnabled = false
+            btn.text = "Descargando…"
+            Thread {
+                try {
+                    Updater.downloadAndInstall(this, info) { pct -> runOnUiThread { btn.text = "Descargando… $pct %" } }
+                    runOnUiThread { btn.text = "Instalando…"; status.text = "Confirmá la instalación en la ventana de Android." }
+                } catch (e: Exception) {
+                    runOnUiThread {
+                        updating = false
+                        btn.isEnabled = true
+                        btn.text = "Reintentar"
+                        status.text = "No se pudo descargar. Revisá la conexión."
+                        status.setTextColor(p.warn)
+                    }
+                }
+            }.start()
+        }
+        c.add(btn, 14)
+        updateBox.add(c, 20)
     }
 
     // ---------- permisos ----------

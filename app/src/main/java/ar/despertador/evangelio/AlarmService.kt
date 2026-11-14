@@ -197,6 +197,7 @@ class AlarmService : Service() {
 
     private fun createPlayer(): MediaPlayer? {
         val uris = listOfNotNull(
+            Sounds.uriFor(this, Prefs.sound(this)),
             RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_ALARM),
             RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM),
             RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE),

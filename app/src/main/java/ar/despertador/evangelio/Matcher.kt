@@ -5,11 +5,14 @@ import java.util.Locale
 
 /**
  * Sigue la lectura: compara lo que reconoce el micrófono con el texto, palabra por
- * palabra, con tolerancia (acentos, una letra de diferencia, palabras salteadas).
+ * palabra, con tolerancia (acentos, letras que suenan igual, palabras salteadas).
+ * Los nombres propios (Cafarnaúm, Zebedeo…) tienen todavía más tolerancia, porque el
+ * reconocimiento de voz suele escribirlos mal.
  */
 class Matcher(text: String) {
 
-    class Word(val start: Int, val end: Int, val norm: String) {
+    class Word(val start: Int, val end: Int, val norm: String, val proper: Boolean) {
+        val phon: String = phonetic(norm)
         /** 0 = sin leer, 1 = leída, 2 = salteada */
         var state = 0
     }
@@ -23,7 +26,7 @@ class Matcher(text: String) {
     init {
         Regex("\\S+").findAll(text).forEach { m ->
             val n = norm(m.value)
-            if (n.isNotEmpty()) words.add(Word(m.range.first, m.range.last + 1, n))
+            if (n.isNotEmpty()) words.add(Word(m.range.first, m.range.last + 1, n, isProper(text, m.range.first, m.value)))
         }
     }
 
@@ -55,10 +58,12 @@ class Matcher(text: String) {
         var p = start
         val marks = ArrayList<Pair<Int, Int>>()
         for (h in heard) {
+            val hp = phonetic(h)
             val end = minOf(p + LOOK, words.size)
             for (k in p until end) {
-                if (same(words[k].norm, h)) {
-                    for (s in p until k) marks.add(s to 2)
+                if (same(words[k], h, hp)) {
+                    // Un nombre propio que el reconocedor no entendió no cuenta como salteado.
+                    for (s in p until k) marks.add(s to if (words[s].proper) 1 else 2)
                     marks.add(k to 1)
                     p = k + 1
                     break
@@ -77,15 +82,41 @@ class Matcher(text: String) {
                 .lowercase(Locale.ROOT)
                 .replace(Regex("[^a-z0-9]"), "")
 
-        private fun same(exp: String, heard: String): Boolean {
-            if (exp == heard) return true
-            if (exp.length >= 5 && lev(exp, heard) <= 1) return true
-            if (exp.length >= 8 && lev(exp, heard) <= 2) return true
+        /** Cómo suena en castellano rioplatense: b/v, s/z/c, y/ll, h muda, qu/k, letras dobles. */
+        fun phonetic(n: String): String {
+            var s = n.replace("ch", "#").replace("h", "").replace("#", "ch")
+            s = s.replace("v", "b").replace("w", "u").replace("ll", "y").replace("qu", "k")
+            s = s.replace(Regex("c([ei])"), "s$1").replace("z", "s").replace("c", "k").replace("x", "ks")
+            s = s.replace(Regex("(.)\\1+"), "$1")
+            return s
+        }
+
+        /** Mayúscula en medio de una oración: nombre propio. */
+        private fun isProper(text: String, at: Int, raw: String): Boolean {
+            val first = raw.firstOrNull { it.isLetter() } ?: return false
+            if (!first.isUpperCase()) return false
+            var i = at - 1
+            while (i >= 0 && text[i].isWhitespace()) i--
+            if (i < 0) return false
+            return text[i] !in ".!?¿¡«»:;—–-\"“”'"
+        }
+
+        private fun same(w: Word, heard: String, heardPhon: String): Boolean {
+            if (w.norm == heard || w.phon == heardPhon) return true
+            val d = lev(w.phon, heardPhon)
+            if (w.proper) {
+                if (w.phon.length >= 4 && d <= 2) return true
+                if (w.phon.length >= 7 && d <= 3) return true
+                if (w.phon.length >= 4 && heardPhon.length >= 3 && w.phon.take(3) == heardPhon.take(3)) return true
+                return false
+            }
+            if (w.phon.length >= 5 && d <= 1) return true
+            if (w.phon.length >= 8 && d <= 2) return true
             return false
         }
 
         private fun lev(a: String, b: String): Int {
-            if (kotlin.math.abs(a.length - b.length) > 2) return 9
+            if (kotlin.math.abs(a.length - b.length) > 3) return 9
             val d = IntArray(b.length + 1) { it }
             for (i in 1..a.length) {
                 var prev = d[0]

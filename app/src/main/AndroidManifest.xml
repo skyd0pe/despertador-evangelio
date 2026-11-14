@@ -16,6 +16,7 @@
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <queries>
         <intent>
@@ -54,6 +55,15 @@
             android:name=".AlarmService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false" />
+
+        <service
+            android:name=".GospelSyncJob"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
 
         <receiver
             android:name=".AlarmReceiver"

@@ -21,6 +21,7 @@ class AlarmReceiver : BroadcastReceiver() {
         } else {
             // Reinicio del celular, actualización de la app o permiso nuevo.
             AlarmScheduler.scheduleAll(c)
+            GospelSyncJob.schedule(c)
         }
     }
 }

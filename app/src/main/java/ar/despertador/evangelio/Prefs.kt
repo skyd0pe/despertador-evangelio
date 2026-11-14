@@ -25,6 +25,19 @@ object Prefs {
     /** Modo ecuménico: oculta las referencias católicas y deja solo las bíblicas. */
     fun ecumenical(c: Context) = sp(c).getBoolean("ecumenical", false)
 
+    /** Sonido de la alarma: "system" o uno de [Sounds]. */
+    fun sound(c: Context) = sp(c).getString("sound", "campanas") ?: "campanas"
+
+    /** La bienvenida ya se cerró con la X. */
+    fun welcomeDismissed(c: Context) = sp(c).getBoolean("welcome_done", false)
+
+    /** Ya probó la alarma al menos una vez. */
+    fun tested(c: Context) = sp(c).getBoolean("tested", false)
+
+    fun setSound(c: Context, v: String) = sp(c).edit().putString("sound", v).apply()
+    fun setWelcomeDismissed(c: Context) = sp(c).edit().putBoolean("welcome_done", true).apply()
+    fun setTested(c: Context) = sp(c).edit().putBoolean("tested", true).apply()
+
     fun setThreshold(c: Context, v: Int) = sp(c).edit().putInt("threshold", v).apply()
     fun setSilence(c: Context, v: Int) = sp(c).edit().putInt("silence", v).apply()
     fun setRamp(c: Context, v: Int) = sp(c).edit().putInt("ramp", v).apply()

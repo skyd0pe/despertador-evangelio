@@ -50,18 +50,39 @@ object GospelRepo {
         )
     }
 
-    private fun save(c: Context, g: Gospel) {
+    /** Los días que se guardan: hoy y los seis siguientes. */
+    fun week(): List<String> = (0..6).map { d ->
+        val c = Calendar.getInstance()
+        c.add(Calendar.DAY_OF_YEAR, d)
+        key(c)
+    }
+
+    /** Borra todo lo que no sea de esta semana. */
+    private fun prune(c: Context) {
         val sp = store(c)
+        val keep = week().toSet()
         val e = sp.edit()
-        val keep = setOf(today(), tomorrow(), g.date)
-        for (k in sp.all.keys) {
-            val d = k.substringAfter("_")
-            if (d !in keep) e.remove(k)
-        }
-        e.putString("t_${g.date}", g.text)
+        for (k in sp.all.keys) if (k.substringAfter("_") !in keep) e.remove(k)
+        e.apply()
+    }
+
+    private fun save(c: Context, g: Gospel) {
+        store(c).edit()
+            .putString("t_${g.date}", g.text)
             .putString("ti_${g.date}", g.title)
             .putString("r_${g.date}", g.ref)
             .apply()
+        prune(c)
+    }
+
+    /** Baja los Evangelios de hoy a seis días que todavía falten y borra los viejos. Bloquea. */
+    fun syncWeek(c: Context): Int {
+        var ok = 0
+        for (d in week()) {
+            if (cached(c, d) != null || fetch(c, d) != null) ok++
+        }
+        prune(c)
+        return ok
     }
 
     /** Bloquea: llamar fuera del hilo principal. */
