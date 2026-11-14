@@ -7,14 +7,20 @@ import android.app.NotificationManager
 import android.app.TimePickerDialog
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.drawable.GradientDrawable
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.speech.SpeechRecognizer
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.ForegroundColorSpan
 import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -22,23 +28,50 @@ import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.Switch
 import android.widget.TextView
+import java.time.format.DateTimeFormatter
 import java.util.Calendar
+import java.util.Locale
 
 class MainActivity : Activity() {
 
     private lateinit var p: Palette
+    private var tab = 0
+
+    private lateinit var pages: List<ScrollView>
+    private lateinit var tabs: List<TextView>
+    private lateinit var ribbon: RibbonView
+
+    // Alarmas
     private lateinit var tvNext: TextView
     private lateinit var alarmsBox: LinearLayout
-    private lateinit var permBox: LinearLayout
-    private lateinit var tvGTitle: TextView
-    private lateinit var tvGRef: TextView
+    private lateinit var tvPreviewRef: TextView
+    private lateinit var tvPreviewTitle: TextView
+
+    // Evangelio
+    private lateinit var tvGRubric: TextView
+    private lateinit var tvGDate: TextView
+    private lateinit var tvGHeading: TextView
+    private lateinit var tvGRefNums: TextView
     private lateinit var tvGText: TextView
+    private var gospel: Gospel? = null
+
+    // Ajustes
+    private lateinit var permBox: LinearLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
         p = Palette(this)
+        setTheme(p.activityTheme)
+        super.onCreate(savedInstanceState)
+        p.applyTo(this)
+        tab = savedInstanceState?.getInt("tab") ?: 0
         buildUi()
+        showTab(tab)
         loadGospel(force = false)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putInt("tab", tab)
     }
 
     override fun onResume() {
@@ -47,252 +80,194 @@ class MainActivity : Activity() {
         refreshPermissions()
     }
 
+    private val ecumenical get() = Prefs.ecumenical(this)
+
+    // =====================================================================
+    // Estructura: tres páginas y una barra de pestañas abajo
+    // =====================================================================
+
     private fun buildUi() {
-        val col = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(28), dp(20), dp(32))
-        }
+        pages = listOf(page(alarmsPage()), page(gospelPage()), page(settingsPage()))
+        val content = FrameLayout(this)
+        pages.forEach { content.addView(it, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)) }
 
-        col.add(label("Despertador del Evangelio", 26f, p.fg, bold = true))
-        col.add(label("Se apaga cuando leés en voz alta el Evangelio del día.", 15f, p.muted), 4)
-
-        tvNext = label("", 15f, p.accent, bold = true)
-        col.add(tvNext, 14)
-
-        // Alarmas
-        col.add(eyebrow("Alarmas", p), 18)
-        alarmsBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        col.add(alarmsBox, 4)
-        col.add(pillButton("+ Agregar alarma", p.surface2, p.fg, p.line) { addAlarm() }, 10)
-        col.add(pillButton("Probar ahora", p.accent, p.onAccent) { testNow() }, 10)
-
-        col.add(settingsCard(), 18)
-
-        // Permisos
-        val perm = card(p)
-        perm.add(eyebrow("Permisos que necesita", p))
-        permBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        perm.add(permBox, 4)
-        col.add(perm, 18)
-
-        // Evangelio de hoy
-        val gos = card(p)
-        gos.add(eyebrow("Evangelio de hoy", p))
-        tvGTitle = label("Cargando…", 13f, p.muted)
-        tvGRef = label("", 18f, p.fg, bold = true)
-        tvGText = label("", 16f, p.muted, serif = true).apply { maxLines = 5 }
-        gos.add(tvGTitle, 6)
-        gos.add(tvGRef, 4)
-        gos.add(tvGText, 6)
-        gos.add(pillButton("Actualizar", p.surface2, p.fg, p.line) { loadGospel(force = true) }, 12)
-        col.add(gos, 18)
-
-        col.add(
-            label(
-                "Texto: El Libro del Pueblo de Dios, vía evangeliodeldia.org. " +
-                    "Si un día no hay internet, usa el que bajó la noche anterior.\n\n" +
-                    "Salida de emergencia: en la pantalla de la alarma, mantené apretado " +
-                    "“Emergencia” durante 8 segundos.",
-                13f, p.muted
-            ),
-            18
-        )
-
-        setContentView(ScrollView(this).apply {
-            setBackgroundColor(p.bg)
-            addView(col)
+        ribbon = RibbonView(this).apply { color = p.rubric }
+        content.addView(ribbon, FrameLayout.LayoutParams(dp(22), dp(96), Gravity.TOP or Gravity.END).apply {
+            rightMargin = dp(32)
         })
-    }
 
-    // ---------- ajustes ----------
-
-    private fun settingsCard(): LinearLayout {
-        val adj = card(p)
-        adj.add(eyebrow("Ajustes", p))
-
-        // Cuánto hay que leer
-        val tvTol = label("", 15f, p.fg)
-        fun showTol(v: Int) { tvTol.text = "Cuánto hay que leer bien: $v %" }
-        showTol(Prefs.threshold(this))
-        adj.add(tvTol, 10)
-        adj.add(SeekBar(this).apply {
-            max = 7
-            progress = (Prefs.threshold(this@MainActivity) - 60) / 5
-            setOnSeekBarChangeListener(seek { v ->
-                val pct = 60 + v * 5
-                showTol(pct)
-                Prefs.setThreshold(this@MainActivity, pct)
-            })
-        }, 4)
-
-        // Silencio
-        adj.add(label("Si te quedás callado, vuelve a sonar a los:", 15f, p.fg), 16)
-        adj.add(choices(listOf(15 to "15 s", 30 to "30 s", 60 to "60 s"), Prefs.silenceSec(this)) {
-            Prefs.setSilence(this, it)
-        }, 4)
-
-        // Volumen progresivo
-        adj.add(label("Volumen progresivo (tarda en llegar al máximo):", 15f, p.fg), 16)
-        adj.add(choices(listOf(0 to "No", 30 to "30 s", 60 to "1 min", 120 to "2 min"), Prefs.rampSec(this)) {
-            Prefs.setRamp(this, it)
-        }, 4)
-        adj.add(label("Si vuelve a sonar porque te quedaste callado, suena fuerte de entrada.", 13f, p.muted), 2)
-
-        // Tamaño de letra con muestra
-        val tvFont = label("", 15f, p.fg)
-        val sample = label(
-            "Bienaventurados los pobres en espíritu: porque de ellos es el reino de los cielos.",
-            Prefs.fontSize(this).toFloat(), p.fg, serif = true
-        ).apply {
-            setLineSpacing(0f, 1.4f)
-            setPadding(dp(14), dp(12), dp(14), dp(12))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(12).toFloat()
-                setColor(p.surface2)
-                setStroke(dp(1), p.line)
+        val nav = row(this).apply { setPadding(dp(12), dp(4), dp(12), dp(10)) }
+        tabs = listOf("Alarmas", "Evangelio", "Ajustes").mapIndexed { i, name ->
+            label(name, 15f, p.muted).apply {
+                gravity = Gravity.CENTER
+                setPadding(0, dp(12), 0, dp(10))
+                setOnClickListener { showTab(i) }
             }
         }
-        fun showFont(v: Int) {
-            tvFont.text = "Tamaño de la letra del Evangelio: $v"
-            sample.textSize = v.toFloat()
-        }
-        showFont(Prefs.fontSize(this))
-        adj.add(tvFont, 16)
-        adj.add(SeekBar(this).apply {
-            max = 8 // 16 a 32, de a 2
-            progress = (Prefs.fontSize(this@MainActivity) - 16) / 2
-            setOnSeekBarChangeListener(seek { v ->
-                val size = 16 + v * 2
-                showFont(size)
-                Prefs.setFontSize(this@MainActivity, size)
-            })
-        }, 4)
-        adj.add(label("Así se va a ver al despertarte:", 13f, p.muted), 6)
-        adj.add(sample, 4)
-        return adj
+        tabs.forEach { nav.add(it, weight = 1f) }
+
+        val root = col(this).apply { setBackgroundColor(p.paper) }
+        root.addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        root.addView(hairline(p))
+        root.addView(nav, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        setContentView(root)
     }
 
-    private fun seek(onChange: (Int) -> Unit) = object : SeekBar.OnSeekBarChangeListener {
-        override fun onProgressChanged(sb: SeekBar?, v: Int, fromUser: Boolean) = onChange(v)
-        override fun onStartTrackingTouch(sb: SeekBar?) {}
-        override fun onStopTrackingTouch(sb: SeekBar?) {}
+    private fun page(inner: View) = ScrollView(this).apply {
+        isVerticalScrollBarEnabled = false
+        addView(inner)
     }
 
-    private fun choices(opts: List<Pair<Int, String>>, current: Int, onPick: (Int) -> Unit): RadioGroup {
-        val rg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
-        val ids = opts.map { android.view.View.generateViewId() }
-        opts.forEachIndexed { i, (value, text) ->
-            rg.addView(RadioButton(this).apply {
-                id = ids[i]
-                this.text = text
-                textSize = 15f
-                setTextColor(p.fg)
-                isChecked = value == current
-                setPadding(dp(2), 0, dp(12), 0)
-            })
+    private fun pageColumn() = col(this).apply { setPadding(dp(28), dp(40), dp(28), dp(36)) }
+
+    private fun showTab(i: Int) {
+        tab = i
+        pages.forEachIndexed { k, v -> v.visibility = if (k == i) View.VISIBLE else View.GONE }
+        tabs.forEachIndexed { k, t ->
+            val on = k == i
+            t.setTextColor(if (on) p.ink else p.muted)
+            t.typeface = if (on) Fonts.text(this, 600) else Fonts.text(this)
+            val text = t.text.toString()
+            val sb = SpannableStringBuilder(text)
+            if (on) sb.setSpan(android.text.style.UnderlineSpan(), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            t.text = sb
         }
-        rg.setOnCheckedChangeListener { _, checked ->
-            val i = ids.indexOf(checked)
-            if (i >= 0) onPick(opts[i].first)
-        }
-        return rg
+        ribbon.visibility = if (i == 2) View.GONE else View.VISIBLE
     }
 
-    // ---------- alarmas ----------
+    // =====================================================================
+    // Página 1: alarmas
+    // =====================================================================
+
+    private fun alarmsPage(): View {
+        val c = pageColumn()
+        c.add(label("LAZARUS", 40f, p.ink, Fonts.display(this, 600)).apply { letterSpacing = 0.08f })
+        c.add(label("«Lázaro, sal fuera» · Jn 11, 43", 15f, p.rubric, Fonts.italic(this)), 2)
+
+        tvNext = label("", 15f, p.muted)
+        c.add(tvNext, 24)
+
+        val head = row(this)
+        head.add(rubric("Alarmas", p), weight = 1f)
+        head.add(textButton("+ Agregar", p.rubric) { addAlarm() }, matchWidth = false)
+        c.add(head, 22)
+        c.add(hairline(p, p.ink))
+
+        alarmsBox = col(this)
+        c.add(alarmsBox)
+
+        c.add(label("Tocá la hora para cambiarla. Mantené apretada una alarma para borrarla.", 13f, p.muted, Fonts.italic(this)), 12)
+        c.add(bookButton("Probar ahora", p.ink, p.ink, filled = false) { testNow() }, 18)
+
+        val preview = col(this).apply {
+            setOnClickListener { showTab(1) }
+            isClickable = true
+        }
+        tvPreviewTitle = rubric("Evangelio de hoy", p)
+        tvPreviewRef = label("Cargando…", 18f, p.ink, Fonts.text(this, 600))
+        preview.add(tvPreviewTitle)
+        preview.add(tvPreviewRef, 4)
+        preview.add(label("Leer ahora →", 14f, p.muted, Fonts.italic(this)), 4)
+        c.add(preview, 30)
+        return c
+    }
 
     private fun refreshAlarms() {
         val ok = AlarmScheduler.scheduleAll(this)
         alarmsBox.removeAllViews()
-        AlarmStore.all(this).forEach { alarmsBox.add(alarmCard(it), 10) }
+        AlarmStore.all(this).forEach { alarmsBox.add(alarmEntry(it)) }
 
         val next = AlarmScheduler.next(this)
         when {
             !ok -> {
-                tvNext.text = "No se pueden programar: falta el permiso de alarmas exactas (abajo)."
-                tvNext.setTextColor(p.miss)
+                tvNext.text = "No se pueden programar las alarmas: falta un permiso (en Ajustes)."
+                tvNext.setTextColor(p.rubric)
             }
             next == null -> {
                 tvNext.text = "No hay alarmas activadas."
                 tvNext.setTextColor(p.muted)
             }
             else -> {
-                tvNext.text = "Próxima: " + whenText(next.second)
-                tvNext.setTextColor(p.accent)
+                val (day, rest) = whenText(next.second)
+                val sb = SpannableStringBuilder("Próxima: ")
+                val st = sb.length
+                sb.append(day)
+                sb.setSpan(ForegroundColorSpan(p.ink), st, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                sb.setSpan(android.text.style.StyleSpan(Typeface.BOLD), st, sb.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+                sb.append(", $rest")
+                tvNext.text = sb
+                tvNext.setTextColor(p.muted)
             }
         }
     }
 
-    private fun whenText(t: Long): String {
+    /** "mañana a las 6:30" y "en 5 h 41 min". */
+    private fun whenText(t: Long): Pair<String, String> {
         val cal = Calendar.getInstance().apply { timeInMillis = t }
         val today = Calendar.getInstance()
         val tomorrow = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, 1) }
-        val sameDay = { a: Calendar, b: Calendar ->
+        fun same(a: Calendar, b: Calendar) =
             a.get(Calendar.YEAR) == b.get(Calendar.YEAR) && a.get(Calendar.DAY_OF_YEAR) == b.get(Calendar.DAY_OF_YEAR)
-        }
         val day = when {
-            sameDay(cal, today) -> "hoy"
-            sameDay(cal, tomorrow) -> "mañana"
+            same(cal, today) -> "hoy"
+            same(cal, tomorrow) -> "mañana"
             else -> "el " + listOf("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")[Alarm.dayIndex(cal)]
         }
-        val hhmm = String.format(java.util.Locale.US, "%02d:%02d", cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
+        val hm = "${cal.get(Calendar.HOUR_OF_DAY)}:${String.format(Locale.US, "%02d", cal.get(Calendar.MINUTE))}"
         val mins = ((t - System.currentTimeMillis()) / 60000).toInt()
-        return "$day a las $hhmm (en ${mins / 60} h ${mins % 60} min)"
+        return "$day a las $hm" to "en ${mins / 60} h ${mins % 60} min"
     }
 
-    private fun alarmCard(a: Alarm): LinearLayout {
-        val c = card(p)
-
-        val top = row(this)
-        val tvTime = label(a.timeText(), 44f, if (a.enabled) p.fg else p.muted, bold = true).apply {
-            setOnClickListener { editTime(a) }
+    private fun alarmEntry(a: Alarm): View {
+        val e = col(this).apply {
+            setPadding(0, dp(14), 0, dp(14))
+            setOnLongClickListener { confirmDelete(a); true }
         }
-        top.add(tvTime, weight = 1f)
-        top.add(Switch(this).apply {
+        val top = row(this)
+        val time = "${a.hour}:${String.format(Locale.US, "%02d", a.minute)}"
+        top.add(label(time, 48f, if (a.enabled) p.ink else p.faint, Fonts.display(this, 600)).apply {
+            includeFontPadding = false
+            setOnClickListener { editTime(a) }
+            setOnLongClickListener { confirmDelete(a); true }
+        }, weight = 1f)
+        val sw = Switch(this).apply {
             isChecked = a.enabled
+            contentDescription = "Activar alarma de las $time"
             setOnCheckedChangeListener { _, on ->
                 AlarmStore.upsert(this@MainActivity, a.copy(enabled = on))
                 if (on) prefetch()
                 refreshAlarms()
             }
-        }, matchWidth = false)
-        c.add(top)
+        }
+        tintControls(p, sw)
+        top.add(sw, matchWidth = false)
+        e.add(top)
 
-        // Días: L M M J V S D
         val days = row(this)
         for (i in 0..6) {
             val on = a.hasDay(i)
-            val chip = label(Alarm.DAY_LETTERS[i], 15f, if (on) p.onAccent else p.fg, bold = true).apply {
-                gravity = Gravity.CENTER
-                setPadding(0, dp(9), 0, dp(9))
-                background = GradientDrawable().apply {
-                    cornerRadius = dp(10).toFloat()
-                    setColor(if (on) p.accent else p.surface2)
-                    if (!on) setStroke(dp(1), p.line)
-                }
+            days.add(label(Alarm.DAY_LETTERS[i], 15f, if (on) p.rubric else p.faint, Fonts.text(this, if (on) 600 else 400)).apply {
+                setPadding(0, dp(8), dp(14), dp(8))
                 contentDescription = Alarm.DAY_NAMES[i] + if (on) ", activado" else ", desactivado"
                 setOnClickListener {
                     AlarmStore.upsert(this@MainActivity, a.copy(days = a.days xor (1 shl i)))
                     refreshAlarms()
                 }
-            }
-            val lp = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            if (i > 0) lp.leftMargin = dp(6)
-            days.addView(chip, lp)
+            }, matchWidth = false)
         }
-        c.add(days, 10)
+        days.add(label(a.daysText().replaceFirstChar { it.lowercase() }, 14f, p.muted, Fonts.italic(this)).apply {
+            gravity = Gravity.END
+        }, weight = 1f)
+        e.add(days, 4)
 
-        val bottom = row(this)
-        bottom.add(label(a.daysText(), 14f, p.muted), weight = 1f)
-        bottom.add(label("Borrar", 14f, p.miss, bold = true).apply {
-            setPadding(dp(12), dp(8), 0, dp(8))
-            setOnClickListener { confirmDelete(a) }
-        }, matchWidth = false)
-        c.add(bottom, 6)
-        return c
+        val wrap = col(this)
+        wrap.add(e)
+        wrap.add(hairline(p))
+        return wrap
     }
 
     private fun editTime(a: Alarm) {
-        TimePickerDialog(this, { _, h, m ->
+        TimePickerDialog(this, p.dialogTheme, { _, h, m ->
             AlarmStore.upsert(this, a.copy(hour = h, minute = m, enabled = true))
             prefetch()
             refreshAlarms()
@@ -300,7 +275,7 @@ class MainActivity : Activity() {
     }
 
     private fun addAlarm() {
-        TimePickerDialog(this, { _, h, m ->
+        TimePickerDialog(this, p.dialogTheme, { _, h, m ->
             AlarmStore.create(this, h, m)
             prefetch()
             refreshAlarms()
@@ -308,8 +283,8 @@ class MainActivity : Activity() {
     }
 
     private fun confirmDelete(a: Alarm) {
-        AlertDialog.Builder(this)
-            .setMessage("¿Borrar la alarma de las ${a.timeText()}?")
+        AlertDialog.Builder(this, p.dialogTheme)
+            .setMessage("¿Borrar la alarma de las ${a.hour}:${String.format(Locale.US, "%02d", a.minute)}?")
             .setPositiveButton("Borrar") { _, _ ->
                 AlarmScheduler.cancel(this, a.id)
                 AlarmStore.delete(this, a.id)
@@ -324,7 +299,64 @@ class MainActivity : Activity() {
         startActivity(Intent(this, AlarmActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 
-    // ---------- evangelio ----------
+    // =====================================================================
+    // Página 2: Evangelio de hoy
+    // =====================================================================
+
+    private fun gospelPage(): View {
+        val c = pageColumn()
+        tvGRubric = rubric("Evangelio del día", p).apply { setPadding(0, 0, dp(44), 0) }
+        tvGDate = label("", 14f, p.muted, Fonts.italic(this))
+        c.add(tvGRubric)
+        c.add(tvGDate, 2)
+        c.add(hairline(p), 18)
+
+        val head = row(this).apply { gravity = Gravity.BOTTOM }
+        tvGHeading = label("", 15f, p.rubric, Fonts.italic(this))
+        tvGRefNums = label("", 15f, p.rubric, Fonts.text(this, 600))
+        head.add(tvGHeading, weight = 1f)
+        head.add(tvGRefNums, matchWidth = false)
+        c.add(head, 14)
+
+        tvGText = label("Cargando…", Prefs.fontSize(this).toFloat(), p.ink).apply { setLineSpacing(0f, 1.5f) }
+        c.add(tvGText, 12)
+
+        c.add(textButton("Actualizar", p.rubric) { loadGospel(force = true) }, 18)
+        c.add(label(
+            "Texto bíblico: El Libro del Pueblo de Dios, vía evangeliodeldia.org. " +
+                "Se baja la noche anterior, así suena aunque no haya internet.",
+            13f, p.muted, Fonts.italic(this)
+        ), 6)
+        return c
+    }
+
+    private fun showGospel(g: Gospel?) {
+        gospel = g
+        if (g == null) {
+            tvGText.text = "No se pudo bajar. Revisá la conexión y tocá Actualizar."
+            tvPreviewRef.text = "Sin conexión"
+            return
+        }
+        val date = Liturgy.dateOf(g.date)
+        val dateText = date.format(DateTimeFormatter.ofPattern("EEEE d 'de' MMMM", Locale("es", "AR")))
+            .replaceFirstChar { it.uppercase() }
+        val book = g.ref.substringBefore(' ')
+        tvGRefNums.text = g.ref.substringAfter(' ', "")
+        tvPreviewRef.text = g.ref
+        if (ecumenical) {
+            ribbon.color = p.rubric
+            tvGRubric.text = dateText.uppercase()
+            tvGDate.visibility = View.GONE
+            tvGHeading.text = "Evangelio de $book"
+        } else {
+            ribbon.color = p.liturgical(Liturgy.color(date, g.title))
+            tvGRubric.text = g.title.ifBlank { "Evangelio del día" }.uppercase()
+            tvGDate.visibility = View.VISIBLE
+            tvGDate.text = dateText
+            tvGHeading.text = "✠  Lectura del santo Evangelio según san $book"
+        }
+        tvGText.text = withDropCap(g.text, p, tvGText.textSize)
+    }
 
     private fun prefetch() {
         Thread {
@@ -334,24 +366,161 @@ class MainActivity : Activity() {
     }
 
     private fun loadGospel(force: Boolean) {
-        tvGTitle.text = "Cargando…"
         Thread {
             val date = GospelRepo.today()
-            val g = (if (force) null else GospelRepo.cached(this, date))
-                ?: GospelRepo.fetch(this, date)
+            val g = (if (force) null else GospelRepo.cached(this, date)) ?: GospelRepo.fetch(this, date)
             GospelRepo.fetch(this, GospelRepo.tomorrow())
-            runOnUiThread {
-                if (g == null) {
-                    tvGTitle.text = "No se pudo bajar. Revisá la conexión y tocá Actualizar."
-                    tvGRef.text = ""
-                    tvGText.text = ""
-                } else {
-                    tvGTitle.text = g.title
-                    tvGRef.text = g.ref
-                    tvGText.text = g.text
-                }
-            }
+            runOnUiThread { showGospel(g) }
         }.start()
+    }
+
+    // =====================================================================
+    // Página 3: ajustes
+    // =====================================================================
+
+    private fun section(c: LinearLayout, title: String, topDp: Int = 30) {
+        c.add(rubric(title, p), topDp)
+        c.add(hairline(p, p.ink), 6)
+    }
+
+    private fun settingsPage(): View {
+        val c = pageColumn()
+        c.add(label("Ajustes", 40f, p.ink, Fonts.display(this, 600)))
+
+        // Apariencia
+        section(c, "Apariencia")
+        c.add(label("Tema", 16f, p.ink, Fonts.text(this, 600)), 14)
+        c.add(choices(ThemeMode.values().map { it to it.label }, Prefs.theme(this)) {
+            Prefs.setTheme(this, it)
+            recreate()
+        }, 4)
+        c.add(label("Sistema sigue el modo nocturno del celular. AMOLED usa negro puro y gasta menos batería.", 13f, p.muted, Fonts.italic(this)), 2)
+
+        val tvFont = label("", 16f, p.ink, Fonts.text(this, 600))
+        val sample = label("", Prefs.fontSize(this).toFloat(), p.ink).apply {
+            setLineSpacing(0f, 1.5f)
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(p.surface)
+                cornerRadius = dpf(3f)
+            }
+        }
+        val sampleText = "Bienaventurados los pobres en espíritu: porque de ellos es el reino de los cielos."
+        fun showFont(v: Int) {
+            tvFont.text = "Letra del Evangelio: $v"
+            sample.textSize = v.toFloat()
+            sample.text = withDropCap(sampleText, p, sample.textSize)
+        }
+        showFont(Prefs.fontSize(this))
+        c.add(tvFont, 22)
+        c.add(SeekBar(this).apply {
+            max = 8
+            progress = (Prefs.fontSize(this@MainActivity) - 16) / 2
+            tintSeek(p, this)
+            setOnSeekBarChangeListener(seek { v ->
+                val size = 16 + v * 2
+                showFont(size)
+                Prefs.setFontSize(this@MainActivity, size)
+                tvGText.textSize = size.toFloat()
+                gospel?.let { tvGText.text = withDropCap(it.text, p, tvGText.textSize) }
+            })
+        }, 6)
+        c.add(label("Así se ve al despertarte:", 13f, p.muted, Fonts.italic(this)), 8)
+        c.add(sample, 6)
+
+        // Fe
+        section(c, "Tradición")
+        val ecuRow = row(this)
+        ecuRow.add(label("Modo ecuménico", 16f, p.ink, Fonts.text(this, 600)), weight = 1f)
+        val sw = Switch(this).apply {
+            isChecked = Prefs.ecumenical(this@MainActivity)
+            contentDescription = "Modo ecuménico"
+            setOnCheckedChangeListener { _, on ->
+                Prefs.setEcumenical(this@MainActivity, on)
+                showGospel(gospel)
+            }
+        }
+        tintControls(p, sw)
+        ecuRow.add(sw, matchWidth = false)
+        c.add(ecuRow, 14)
+        c.add(label(
+            "Oculta el calendario litúrgico, el color de cada tiempo y las fórmulas propias de la misa. " +
+                "Quedan solo el texto bíblico y sus citas.",
+            13f, p.muted, Fonts.italic(this)
+        ), 2)
+
+        // Lectura
+        section(c, "Lectura")
+        val tvTol = label("", 16f, p.ink, Fonts.text(this, 600))
+        fun showTol(v: Int) { tvTol.text = "Cuánto hay que leer bien: $v %" }
+        showTol(Prefs.threshold(this))
+        c.add(tvTol, 14)
+        c.add(SeekBar(this).apply {
+            max = 7
+            progress = (Prefs.threshold(this@MainActivity) - 60) / 5
+            tintSeek(p, this)
+            setOnSeekBarChangeListener(seek { v ->
+                val pct = 60 + v * 5
+                showTol(pct)
+                Prefs.setThreshold(this@MainActivity, pct)
+            })
+        }, 6)
+        c.add(label("Si te quedás callado, vuelve a sonar a los", 16f, p.ink, Fonts.text(this, 600)), 18)
+        c.add(choices(listOf(15 to "15 s", 30 to "30 s", 60 to "60 s"), Prefs.silenceSec(this)) {
+            Prefs.setSilence(this, it)
+        }, 4)
+
+        // Sonido
+        section(c, "Sonido")
+        c.add(label("Volumen progresivo", 16f, p.ink, Fonts.text(this, 600)), 14)
+        c.add(choices(listOf(0 to "No", 30 to "30 s", 60 to "1 min", 120 to "2 min"), Prefs.rampSec(this)) {
+            Prefs.setRamp(this, it)
+        }, 4)
+        c.add(label("Arranca bajito y sube hasta el máximo. Si vuelve a sonar por silencio, suena fuerte de entrada.", 13f, p.muted, Fonts.italic(this)), 2)
+
+        // Permisos
+        section(c, "Permisos")
+        permBox = col(this)
+        c.add(permBox, 4)
+
+        // Acerca de
+        section(c, "Salida de emergencia")
+        c.add(label(
+            "Si el micrófono falla o tenés una urgencia: en la pantalla de la alarma, mantené apretado " +
+                "“Emergencia” durante 8 segundos.",
+            14f, p.muted
+        ), 12)
+        return c
+    }
+
+    private fun seek(onChange: (Int) -> Unit) = object : SeekBar.OnSeekBarChangeListener {
+        override fun onProgressChanged(sb: SeekBar?, v: Int, fromUser: Boolean) {
+            if (fromUser) onChange(v)
+        }
+        override fun onStartTrackingTouch(sb: SeekBar?) {}
+        override fun onStopTrackingTouch(sb: SeekBar?) {}
+    }
+
+    private fun <T> choices(opts: List<Pair<T, String>>, current: T, onPick: (T) -> Unit): RadioGroup {
+        val rg = RadioGroup(this).apply { orientation = RadioGroup.HORIZONTAL }
+        val ids = opts.map { View.generateViewId() }
+        opts.forEachIndexed { i, (value, text) ->
+            rg.addView(RadioButton(this).apply {
+                id = ids[i]
+                this.text = text
+                textSize = 15f
+                typeface = Fonts.text(this@MainActivity)
+                setTextColor(p.ink)
+                isChecked = value == current
+                setPadding(dp(2), 0, dp(10), 0)
+                tintRadio(p, this)
+            })
+        }
+        rg.setOnCheckedChangeListener { _, checked ->
+            val i = ids.indexOf(checked)
+            if (i >= 0) onPick(opts[i].first)
+        }
+        return rg
     }
 
     // ---------- permisos ----------
@@ -406,22 +575,28 @@ class MainActivity : Activity() {
 
     private fun refreshPermissions() {
         permBox.removeAllViews()
+        val missing = perms().count { !it.ok }
+        tabs.getOrNull(2)?.let { t ->
+            val base = "Ajustes"
+            val label = if (missing > 0) "$base · $missing" else base
+            if (t.text.toString() != label) {
+                t.text = label
+                showTab(tab)
+            }
+        }
         perms().forEach { pr ->
-            val r = row(this)
-            val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            texts.add(label((if (pr.ok) "✓  " else "•  ") + pr.name, 16f, if (pr.ok) p.accent else p.fg, bold = true))
-            texts.add(label(pr.why, 13f, p.muted), 2)
+            val r = row(this).apply { setPadding(0, dp(10), 0, dp(10)) }
+            val texts = col(this)
+            texts.add(label(pr.name, 16f, if (pr.ok) p.ink else p.rubric, Fonts.text(this, 600)))
+            texts.add(label(if (pr.ok) "Listo. ${pr.why}" else pr.why, 13f, p.muted, Fonts.italic(this)), 2)
             r.add(texts, weight = 1f)
             if (!pr.ok && pr.fix != null) {
-                val b = pillButton("Dar", p.accent, p.onAccent) { pr.fix?.invoke() }.apply {
-                    minHeight = dp(40)
-                    minimumHeight = dp(40)
-                    textSize = 14f
-                    gravity = Gravity.CENTER
-                }
-                r.add(b, matchWidth = false)
+                r.add(textButton("Activar", p.rubric) { pr.fix?.invoke() }, matchWidth = false)
+            } else if (pr.ok) {
+                r.add(label("✓", 18f, p.muted), matchWidth = false)
             }
-            permBox.add(r, 12)
+            permBox.add(r)
+            permBox.add(hairline(p))
         }
     }
 

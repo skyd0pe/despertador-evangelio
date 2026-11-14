@@ -1,13 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Despertador del Evangelio</string>
+    <string name="app_name">Lazarus</string>
 
-    <style name="AppTheme" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@color/bg</item>
-        <item name="android:colorAccent">@color/accent</item>
-        <item name="android:colorPrimary">@color/accent</item>
-        <item name="android:statusBarColor">@color/bg</item>
-        <item name="android:navigationBarColor">@color/bg</item>
-        <item name="android:windowLightStatusBar">true</item>
+    <!-- Los colores reales los pone el código según el tema elegido (Ui.kt → Palette). -->
+    <style name="AppThemeLight" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/ic_bg</item>
+        <item name="android:colorAccent">#A3221B</item>
+        <item name="android:colorPrimary">#A3221B</item>
+    </style>
+
+    <style name="AppThemeDark" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:colorAccent">#E07A6E</item>
+        <item name="android:colorPrimary">#E07A6E</item>
     </style>
 </resources>

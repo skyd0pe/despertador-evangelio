@@ -105,7 +105,7 @@ class AlarmService : Service() {
         )
         val n = Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_alarm)
-            .setContentTitle("Despertador del Evangelio")
+            .setContentTitle("Lazarus")
             .setContentText("Leé el Evangelio en voz alta para apagar la alarma")
             .setCategory(Notification.CATEGORY_ALARM)
             .setVisibility(Notification.VISIBILITY_PUBLIC)

@@ -1,6 +1,8 @@
-# Despertador del Evangelio
+# Lazarus
 
-App de Android: una alarma que no se apaga hasta que leés en voz alta el Evangelio del día.
+*«Lázaro, sal fuera» (Jn 11, 43)*
+
+App de Android: un despertador que no se apaga hasta que leés en voz alta el Evangelio del día.
 
 ## Cómo funciona
 
@@ -8,18 +10,24 @@ App de Android: una alarma que no se apaga hasta que leés en voz alta el Evange
 2. Aparece el Evangelio del día (El Libro del Pueblo de Dios, vía evangeliodeldia.org).
 3. Al tocar **Empezar a leer** se corta el sonido y el reconocimiento de voz sigue tu lectura palabra por palabra.
 4. Si llegás al final habiendo leído bien el porcentaje fijado (80 % por defecto), se apaga.
-   Si no, o si te quedás callado 30 segundos, vuelve a sonar.
+   Si no, o si te quedás callado, vuelve a sonar.
 
-Los botones de volumen y "atrás" no apagan la alarma. Para casos de emergencia, en la pantalla
-de la alarma hay que mantener apretado **Emergencia** durante 8 segundos.
+## Qué se puede configurar
+
+- Varias alarmas, cada una con sus días de la semana (o una sola vez).
+- Tema: sistema, claro, oscuro o AMOLED (negro puro).
+- Tamaño de la letra, con muestra.
+- Modo ecuménico: oculta el calendario litúrgico y las fórmulas católicas; deja solo el texto bíblico.
+- Cuánto hay que leer bien, a los cuántos segundos de silencio vuelve a sonar y volumen progresivo.
+
+El color de la cinta sigue el tiempo litúrgico (verde, morado, blanco, rojo, rosa).
+
+Los botones de volumen y "atrás" no apagan la alarma. Para emergencias, en la pantalla de la alarma
+hay que mantener apretado **Emergencia** durante 8 segundos.
 
 ## Instalar
 
-Cada vez que se sube un cambio, GitHub compila la app sola. La última versión está en
-**Releases** → `DespertadorEvangelio.apk`. Descargala desde el celular e instalala
-(Android pide permitir "instalar apps de origen desconocido" la primera vez).
+Cada cambio que se sube se compila solo. La última versión está en **Releases** → `Lazarus.apk`.
+Descargala desde el celular e instalala; las versiones nuevas se instalan encima sin perder los ajustes.
 
-## Primer uso
-
-Abrí la app, revisá la sección **Permisos que necesita** y tocá **Dar** en cada uno que falte.
-Después elegí la hora y tocá **Probar ahora**.
+Tipografías: Cormorant Garamond y Source Serif 4 (SIL Open Font License), descargadas al compilar.

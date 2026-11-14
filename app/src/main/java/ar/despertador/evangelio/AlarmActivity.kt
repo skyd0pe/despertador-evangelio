@@ -2,8 +2,12 @@ package ar.despertador.evangelio
 
 import android.Manifest
 import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -21,15 +25,15 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
-import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /** Pantalla que aparece cuando suena: muestra el Evangelio y escucha la lectura. */
@@ -39,6 +43,7 @@ class AlarmActivity : Activity(), RecognitionListener {
 
     private lateinit var p: Palette
     private val h = Handler(Looper.getMainLooper())
+    private var ecumenical = false
 
     private var st = St.LOADING
     private var gospel: Gospel? = null
@@ -52,22 +57,30 @@ class AlarmActivity : Activity(), RecognitionListener {
     private var readMs = 0L
     private var thresholdPct = 80
     private var silenceSec = 30
+    private var fontSp = 20
 
-    private lateinit var root: LinearLayout
+    private lateinit var ribbon: RibbonView
+    private lateinit var tvRubric: TextView
+    private lateinit var tvDate: TextView
     private lateinit var tvClock: TextView
-    private lateinit var tvTitle: TextView
-    private lateinit var tvRef: TextView
+    private lateinit var tvHeading: TextView
+    private lateinit var tvRefNums: TextView
     private lateinit var tvReason: TextView
-    private lateinit var progress: ProgressBar
-    private lateinit var tvPct: TextView
     private lateinit var scroll: ScrollView
     private lateinit var tvText: TextView
-    private lateinit var tvHeard: TextView
+    private lateinit var progress: RuleProgress
+    private lateinit var tvPct: TextView
+    private lateinit var tvGoal: TextView
+    private lateinit var listenBox: LinearLayout
+    private lateinit var bars: LevelBars
+    private lateinit var tvListen: TextView
     private lateinit var tvSilence: TextView
     private lateinit var btnMain: Button
     private lateinit var tvEmergency: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        p = Palette(this)
+        setTheme(p.activityTheme)
         super.onCreate(savedInstanceState)
         if (Build.VERSION.SDK_INT >= 27) {
             setShowWhenLocked(true)
@@ -80,10 +93,12 @@ class AlarmActivity : Activity(), RecognitionListener {
             )
         }
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        p.applyTo(this)
 
-        p = Palette(this)
+        ecumenical = Prefs.ecumenical(this)
         thresholdPct = Prefs.threshold(this)
         silenceSec = Prefs.silenceSec(this)
+        fontSp = Prefs.fontSize(this)
         buildUi()
         render()
 
@@ -96,156 +111,234 @@ class AlarmActivity : Activity(), RecognitionListener {
     // ---------- interfaz ----------
 
     private fun buildUi() {
-        root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20), dp(24), dp(20), dp(16))
-            setBackgroundColor(p.alarmSoft)
-        }
+        val root = col(this).apply { setPadding(dp(28), dp(36), dp(28), dp(14)) }
 
-        tvClock = label(SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date()), 56f, p.fg, bold = true)
-        tvTitle = label("Cargando el Evangelio de hoy…", 14f, p.muted)
-        tvRef = label("", 20f, p.fg, bold = true)
-        tvReason = label("", 15f, p.fg).apply {
-            setPadding(dp(12), dp(8), dp(12), dp(8))
-            background = android.graphics.drawable.GradientDrawable().apply {
-                cornerRadius = dp(10).toFloat()
+        tvRubric = rubric("", p).apply { setPadding(0, 0, dp(44), 0) }
+        tvDate = label("", 14f, p.muted, Fonts.italic(this))
+        root.add(tvRubric)
+        root.add(tvDate, 2)
+
+        val clockRow = row(this).apply { gravity = Gravity.BOTTOM }
+        tvClock = label(LocalTimeText.now(), 84f, p.ink, Fonts.display(this, 600)).apply {
+            includeFontPadding = false
+            setLineSpacing(0f, 1f)
+        }
+        clockRow.add(tvClock, matchWidth = false)
+        clockRow.add(label("LAZARUS", 17f, p.muted, Fonts.display(this, 500)).apply {
+            letterSpacing = 0.3f
+            setPadding(dp(12), 0, 0, dp(14))
+        }, matchWidth = false)
+        root.add(clockRow, 10)
+
+        root.add(hairline(p), 16)
+
+        val head = row(this).apply { gravity = Gravity.BOTTOM }
+        tvHeading = label("", 15f, p.rubric, Fonts.italic(this))
+        tvRefNums = label("", 15f, p.rubric, Fonts.text(this, 600)).apply { gravity = Gravity.END }
+        head.add(tvHeading, weight = 1f)
+        head.add(tvRefNums, matchWidth = false)
+        root.add(head, 14)
+
+        tvReason = label("", 15f, p.ink, Fonts.italic(this)).apply {
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            background = GradientDrawable().apply {
                 setColor(p.surface)
-                setStroke(dp(1), p.line)
+                cornerRadius = dpf(3f)
             }
             visibility = View.GONE
         }
+        root.add(tvReason, 12)
 
-        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
-            max = 100
-            progressTintList = android.content.res.ColorStateList.valueOf(p.accent)
-            progressBackgroundTintList = android.content.res.ColorStateList.valueOf(p.line)
-        }
-        tvPct = label("0 % leído · meta $thresholdPct %", 13f, p.muted)
-
-        tvText = label("", Prefs.fontSize(this).toFloat(), p.muted, serif = true).apply {
-            setLineSpacing(0f, 1.4f)
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+        tvText = label("Preparando el Evangelio de hoy…", fontSp.toFloat(), p.muted, Fonts.text(this)).apply {
+            setLineSpacing(0f, 1.5f)
+            setPadding(0, dp(6), 0, dp(10))
         }
         scroll = ScrollView(this).apply {
-            background = android.graphics.drawable.GradientDrawable().apply {
-                cornerRadius = dp(16).toFloat()
-                setColor(p.surface)
-                setStroke(dp(1), p.line)
-            }
+            isVerticalScrollBarEnabled = false
             addView(tvText)
         }
+        val lp = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+        lp.topMargin = dp(8)
+        root.addView(scroll, lp)
 
-        tvHeard = label("", 13f, p.muted).apply { maxLines = 2 }
-        tvSilence = label("", 13f, p.muted)
+        progress = RuleProgress(this, p).apply { goal = thresholdPct / 100f }
+        root.add(progress, 12)
+        val labels = row(this)
+        tvPct = label("0 % leído", 13f, p.muted)
+        tvGoal = label("Meta $thresholdPct %", 13f, p.muted).apply { gravity = Gravity.END }
+        labels.add(tvPct, weight = 1f)
+        labels.add(tvGoal, matchWidth = false)
+        root.add(labels, 2)
 
-        btnMain = pillButton("Empezar a leer", p.alarm, p.surface) { onMainButton() }
+        listenBox = row(this).apply {
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = GradientDrawable().apply {
+                setColor(android.graphics.Color.TRANSPARENT)
+                setStroke(dp(1), p.ink)
+                cornerRadius = dpf(3f)
+            }
+            visibility = View.GONE
+        }
+        bars = LevelBars(this, p.rubric)
+        tvListen = label("Escuchando tu lectura", 16f, p.ink)
+        tvSilence = label("", 13f, p.muted).apply { gravity = Gravity.END }
+        listenBox.addView(bars, LinearLayout.LayoutParams(dp(22), dp(22)))
+        listenBox.add(tvListen.apply { setPadding(dp(12), 0, 0, 0) }, weight = 1f)
+        listenBox.add(tvSilence, matchWidth = false)
+        root.add(listenBox, 16)
+
+        btnMain = bookButton("Empezar a leer", p.rubric, p.onRubric, filled = true) { onMainButton() }
+        root.add(btnMain, 16)
 
         tvEmergency = label("Emergencia: mantené apretado acá 8 segundos", 12f, p.muted).apply {
             gravity = Gravity.CENTER
             setPadding(0, dp(10), 0, dp(4))
             setOnTouchListener(EmergencyHold())
         }
+        root.add(tvEmergency, 4)
 
-        root.add(tvClock)
-        root.add(tvTitle, 2)
-        root.add(tvRef, 10)
-        root.add(tvReason, 10)
-        root.add(progress, 12)
-        root.add(tvPct, 4)
-        val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
-        lp.topMargin = dp(10)
-        root.addView(scroll, lp)
-        root.add(tvHeard, 8)
-        root.add(tvSilence, 2)
-        root.add(btnMain, 10)
-        root.add(tvEmergency, 2)
-
-        setContentView(FrameLayout(this).apply { addView(root) })
+        ribbon = RibbonView(this).apply { color = p.rubric }
+        val frame = FrameLayout(this).apply {
+            setBackgroundColor(p.paper)
+            addView(root, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(ribbon, FrameLayout.LayoutParams(dp(22), dp(118), Gravity.TOP or Gravity.END).apply {
+                rightMargin = dp(32)
+            })
+        }
+        setContentView(frame)
     }
 
     private fun setGospel(g: Gospel) {
         gospel = g
+        val (letter, body) = splitDropCap(g.text)
         matcher = Matcher(g.text)
-        tvTitle.text = g.title.ifBlank { "Evangelio del día" }
-        tvRef.text = g.ref.ifBlank { "Evangelio" }
-        tvText.text = g.text
+        dropLetter = letter
+        bodyText = body
+
+        val date = Liturgy.dateOf(g.date)
+        val dateText = date.format(DateTimeFormatter.ofPattern("EEEE d 'de' MMMM", Locale("es", "AR")))
+            .replaceFirstChar { it.uppercase() }
+        val book = g.ref.substringBefore(' ').ifBlank { "" }
+        tvRefNums.text = g.ref.substringAfter(' ', "")
+
+        if (ecumenical) {
+            ribbon.color = p.rubric
+            tvRubric.text = dateText.uppercase()
+            tvDate.visibility = View.GONE
+            tvHeading.text = if (book.isNotBlank()) "Evangelio de $book" else "Evangelio"
+        } else {
+            ribbon.color = p.liturgical(Liturgy.color(date, g.title))
+            tvRubric.text = g.title.ifBlank { "Evangelio del día" }.uppercase()
+            tvDate.text = dateText
+            tvHeading.text = if (book.isNotBlank()) "✠  Lectura del santo Evangelio según san $book" else "✠  Evangelio del día"
+        }
+        if (g.offline) reason("Sin internet: hoy toca un texto de reserva.")
         if (st == St.LOADING) st = St.RING
         render()
     }
 
-    private fun render(prov: Set<Int> = emptySet()) {
-        val m = matcher
-        val g = gospel
-        val bg = if (st == St.RING || st == St.LOADING) p.alarmSoft else p.bg
-        root.setBackgroundColor(bg)
-        window.statusBarColor = bg
-        window.navigationBarColor = bg
+    private var dropLetter: String? = null
+    private var bodyText: String = ""
 
+    /** Separa la primera letra para la capital, si el texto empieza con una letra. */
+    private fun splitDropCap(t: String): Pair<String?, String> {
+        if (t.isEmpty() || !t[0].isLetter()) return null to t
+        return t.substring(0, 1) to t.substring(1)
+    }
+
+    private fun render(prov: Set<Int> = emptySet()) {
         when (st) {
             St.LOADING -> {
+                btnMain.visibility = View.VISIBLE
+                listenBox.visibility = View.GONE
                 btnMain.isEnabled = false
-                btnMain.text = "Cargando…"
+                btnMain.text = "Preparando…"
             }
             St.RING -> {
+                btnMain.visibility = View.VISIBLE
+                listenBox.visibility = View.GONE
                 btnMain.isEnabled = true
+                styleButton(filled = true)
+                val m = matcher
                 btnMain.text = if (m != null && m.ptr > 0) "Seguir leyendo" else "Empezar a leer"
-                tvSilence.text = "Mientras no leas, la alarma sigue sonando."
             }
             St.READ -> {
-                btnMain.isEnabled = false
-                btnMain.text = "Leé en voz alta…"
+                btnMain.visibility = View.GONE
+                listenBox.visibility = View.VISIBLE
             }
             St.DONE -> {
+                btnMain.visibility = View.VISIBLE
+                listenBox.visibility = View.GONE
                 btnMain.isEnabled = true
+                styleButton(filled = false)
                 btnMain.text = "Cerrar"
             }
         }
-        (btnMain.background as? android.graphics.drawable.GradientDrawable)?.setColor(
-            when (st) {
-                St.DONE -> p.accent
-                St.READ -> p.surface2
-                else -> p.alarm
-            }
-        )
-        btnMain.setTextColor(if (st == St.READ) p.muted else if (st == St.DONE) p.onAccent else p.surface)
         tvEmergency.visibility = if (st == St.DONE) View.GONE else View.VISIBLE
 
-        if (m == null || g == null) return
+        val m = matcher ?: return
         val pct = (m.score() * 100).toInt()
-        progress.progress = pct
-        tvPct.text = "$pct % leído · meta $thresholdPct %"
+        progress.fraction = m.score()
+        tvPct.text = "$pct % leído"
 
-        val sb = SpannableString(g.text)
+        val letter = dropLetter
+        val shift = if (letter != null) 1 else 0
+        val sb = SpannableString(bodyText)
         val ex = Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+        if (letter != null) {
+            val capPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                typeface = Fonts.display(this@AlarmActivity, 700)
+                color = p.rubric
+                textSize = tvText.textSize * 3.1f
+            }
+            val end = bodyText.indexOf('\n').let { if (it < 0) bodyText.length else it }
+            if (end > 0) sb.setSpan(DropCapSpan(letter, capPaint, dpf(6f)), 0, end, ex)
+        }
         m.words.forEachIndexed { i, w ->
+            val s = (w.start - shift).coerceAtLeast(0)
+            val e = (w.end - shift).coerceAtMost(bodyText.length)
+            if (e <= s) return@forEachIndexed
             when {
-                w.state == 1 -> {
-                    sb.setSpan(ForegroundColorSpan(p.fg), w.start, w.end, ex)
-                    sb.setSpan(BackgroundColorSpan(p.accentSoft), w.start, w.end, ex)
-                }
+                w.state == 1 -> sb.setSpan(ForegroundColorSpan(p.muted), s, e, ex)
                 w.state == 2 -> {
-                    sb.setSpan(ForegroundColorSpan(p.miss), w.start, w.end, ex)
-                    sb.setSpan(StrikethroughSpan(), w.start, w.end, ex)
+                    sb.setSpan(ForegroundColorSpan(p.rubric), s, e, ex)
+                    sb.setSpan(StrikethroughSpan(), s, e, ex)
                 }
                 i in prov -> {
-                    sb.setSpan(ForegroundColorSpan(p.fg), w.start, w.end, ex)
-                    sb.setSpan(UnderlineSpan(), w.start, w.end, ex)
+                    sb.setSpan(ForegroundColorSpan(p.muted), s, e, ex)
+                    sb.setSpan(UnderlineSpan(), s, e, ex)
                 }
                 i == m.ptr && st == St.READ -> {
-                    sb.setSpan(ForegroundColorSpan(p.fg), w.start, w.end, ex)
-                    sb.setSpan(BackgroundColorSpan(p.alarmSoft), w.start, w.end, ex)
+                    sb.setSpan(ForegroundColorSpan(p.ink), s, e, ex)
+                    sb.setSpan(BackgroundColorSpan(p.rubricSoft), s, e, ex)
+                    sb.setSpan(UnderlineSpan(), s, e, ex)
                 }
+                else -> sb.setSpan(ForegroundColorSpan(p.ink), s, e, ex)
             }
         }
         tvText.text = sb
-        if (st == St.READ) followReading(m)
+        if (st == St.READ) followReading(m, shift)
     }
 
-    private fun followReading(m: Matcher) {
+    private fun styleButton(filled: Boolean) {
+        (btnMain.background as? GradientDrawable)?.apply {
+            if (filled) {
+                setColor(p.rubric)
+                setStroke(0, p.rubric)
+            } else {
+                setColor(android.graphics.Color.TRANSPARENT)
+                setStroke(dp(1), p.ink)
+            }
+        }
+        btnMain.setTextColor(if (filled) p.onRubric else p.ink)
+    }
+
+    private fun followReading(m: Matcher, shift: Int) {
         val w = m.words.getOrNull(m.ptr) ?: return
         tvText.post {
             val layout = tvText.layout ?: return@post
-            val y = layout.getLineTop(layout.getLineForOffset(w.start)) + tvText.paddingTop
+            val off = (w.start - shift).coerceIn(0, maxOf(0, bodyText.length - 1))
+            val y = layout.getLineTop(layout.getLineForOffset(off)) + tvText.paddingTop
             val sh = scroll.height
             if (y < scroll.scrollY + sh / 6 || y > scroll.scrollY + sh * 2 / 3) {
                 scroll.smoothScrollTo(0, (y - sh / 3).coerceAtLeast(0))
@@ -282,7 +375,6 @@ class AlarmActivity : Activity(), RecognitionListener {
         reason(null)
         readStart = System.currentTimeMillis()
         lastHeard = readStart
-        tvHeard.text = ""
         render()
         listen()
         h.removeCallbacks(tick)
@@ -293,7 +385,7 @@ class AlarmActivity : Activity(), RecognitionListener {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == 5) {
             if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) startReading()
-            else reason("Sin permiso de micrófono no se puede apagar leyendo. Dalo en Ajustes → Apps → Despertador del Evangelio → Permisos.")
+            else reason("Sin permiso de micrófono no se puede apagar leyendo. Dalo en Ajustes → Apps → Lazarus → Permisos.")
         }
     }
 
@@ -301,8 +393,8 @@ class AlarmActivity : Activity(), RecognitionListener {
         override fun run() {
             if (st != St.READ) return
             val s = ((System.currentTimeMillis() - lastHeard) / 1000).toInt()
-            tvSilence.text = if (s >= 3) "Silencio: $s de $silenceSec segundos" else "Escuchando…"
-            tvSilence.setTextColor(if (s > silenceSec * 2 / 3) p.alarm else p.muted)
+            tvSilence.text = if (s >= 3) "silencio $s s" else ""
+            tvSilence.setTextColor(if (s > silenceSec * 2 / 3) p.rubric else p.muted)
             if (s >= silenceSec) {
                 ringAgain("Te quedaste callado $silenceSec segundos.", restart = false)
                 return
@@ -320,8 +412,6 @@ class AlarmActivity : Activity(), RecognitionListener {
         val svc = AlarmService.instance
         if (svc != null) svc.ring() else AlarmService.start(this)
         reason(msg)
-        tvHeard.text = ""
-        tvSilence.setTextColor(p.muted)
         render()
     }
 
@@ -340,13 +430,11 @@ class AlarmActivity : Activity(), RecognitionListener {
         AlarmService.stop(this)
         val pct = ((matcher?.score() ?: 0f) * 100).toInt()
         val sec = (readMs / 1000).toInt()
-        tvTitle.text = "Alarma apagada"
+        tvRubric.text = "ALARMA APAGADA"
         reason(
             "Buen día. Leíste el $pct % en ${sec / 60}:${String.format(Locale.US, "%02d", sec % 60)}" +
                 (if (rings > 1) " y sonó $rings veces." else ".")
         )
-        tvSilence.text = ""
-        tvHeard.text = ""
         render()
         Thread { GospelRepo.fetch(this, GospelRepo.tomorrow()) }.start()
     }
@@ -384,6 +472,7 @@ class AlarmActivity : Activity(), RecognitionListener {
         h.removeCallbacks(tick)
         listening = false
         lastPartial = ""
+        bars.level = 0f
         try {
             recognizer?.cancel()
         } catch (e: Exception) {
@@ -404,7 +493,6 @@ class AlarmActivity : Activity(), RecognitionListener {
         if (t.isBlank() || t == lastPartial) return
         lastPartial = t
         lastHeard = System.currentTimeMillis()
-        tvHeard.text = "Escuché: “${t.takeLast(110)}”"
         render(matcher?.provisional(t) ?: emptySet())
     }
 
@@ -415,7 +503,6 @@ class AlarmActivity : Activity(), RecognitionListener {
         val t = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
         if (!t.isNullOrBlank()) {
             lastHeard = System.currentTimeMillis()
-            tvHeard.text = "Escuché: “${t.takeLast(110)}”"
             matcher?.commit(t)
             render()
             checkFinished()
@@ -435,16 +522,22 @@ class AlarmActivity : Activity(), RecognitionListener {
                 listenSoon(400)
             }
             SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT, SpeechRecognizer.ERROR_SERVER -> {
-                tvHeard.text = "Problema de conexión con el reconocimiento de voz. Sigo intentando…"
+                tvListen.text = "Reconectando el reconocimiento…"
                 listenSoon(800)
             }
-            else -> listenSoon(150) // no entendió o hubo silencio: vuelve a escuchar
+            else -> listenSoon(150)
         }
     }
 
-    override fun onReadyForSpeech(params: Bundle?) {}
+    override fun onReadyForSpeech(params: Bundle?) {
+        tvListen.text = "Escuchando tu lectura"
+    }
+
+    override fun onRmsChanged(rmsdB: Float) {
+        bars.level = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)
+    }
+
     override fun onBeginningOfSpeech() {}
-    override fun onRmsChanged(rmsdB: Float) {}
     override fun onBufferReceived(buffer: ByteArray?) {}
     override fun onEndOfSpeech() {}
     override fun onEvent(eventType: Int, params: Bundle?) {}
@@ -454,7 +547,6 @@ class AlarmActivity : Activity(), RecognitionListener {
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
         if (st == St.DONE) finish()
-        // Si no, no hace nada: hay que leer.
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
@@ -508,4 +600,26 @@ class AlarmActivity : Activity(), RecognitionListener {
             return true
         }
     }
+}
+
+/** Cuatro barritas que se mueven con la voz. */
+class LevelBars(c: Context, private val color: Int) : View(c) {
+    var level = 0f
+        set(v) { field = v; invalidate() }
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val shape = floatArrayOf(0.45f, 1f, 0.7f, 0.85f)
+
+    override fun onDraw(canvas: Canvas) {
+        paint.color = color
+        val bw = width / 7f
+        for (i in 0 until 4) {
+            val hgt = height * (0.25f + 0.75f * level * shape[i])
+            val x = i * bw * 2f
+            canvas.drawRect(x, (height - hgt) / 2f, x + bw, (height + hgt) / 2f, paint)
+        }
+    }
+}
+
+object LocalTimeText {
+    fun now(): String = java.time.LocalTime.now().format(DateTimeFormatter.ofPattern("H:mm"))
 }
