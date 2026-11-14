@@ -39,6 +39,9 @@ class AlarmActivity : Activity(), RecognitionListener {
     private val h = Handler(Looper.getMainLooper())
     private var ecumenical = false
 
+    /** Abierta desde el aviso "Ya estás despierto": se lee igual, pero sin sonido ni encierro. */
+    private var quiet = false
+
     private var st = St.LOADING
     private var gospel: Gospel? = null
     private var matcher: Matcher? = null
@@ -104,10 +107,19 @@ class AlarmActivity : Activity(), RecognitionListener {
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         p.applyTo(this)
 
+        quiet = intent.getBooleanExtra("quiet", false)
+        if (quiet) Awake.answered(this)
         ecumenical = Prefs.ecumenical(this)
         thresholdPct = Prefs.threshold(this)
         silenceSec = Prefs.silenceSec(this)
         buildUi()
+        if (quiet) {
+            tvGreeting.text = "Ya estás despierto. Cuando quieras, leé el Evangelio de hoy."
+            tvEmergency.setOnTouchListener(null)
+            tvEmergency.text = "Leer más tarde"
+            tvEmergency.setTextColor(p.accent)
+            tvEmergency.setOnClickListener { finish() }
+        }
         render()
 
         Thread {
@@ -403,8 +415,10 @@ class AlarmActivity : Activity(), RecognitionListener {
         if (restart) matcher?.reset()
         st = St.RING
         rings++
-        val svc = AlarmService.instance
-        if (svc != null) svc.ring() else AlarmService.start(this)
+        if (!quiet) {
+            val svc = AlarmService.instance
+            if (svc != null) svc.ring() else AlarmService.start(this)
+        }
         tvClock.text = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"))
         greeting(msg)
         render()
@@ -571,19 +585,27 @@ class AlarmActivity : Activity(), RecognitionListener {
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (st == St.DONE) finish()
+        if (st == St.DONE || quiet) finish()
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN ||
             keyCode == KeyEvent.KEYCODE_VOLUME_MUTE
-        ) return st != St.DONE
+        ) return st != St.DONE && !quiet
         return super.onKeyDown(keyCode, event)
     }
 
     override fun onStop() {
         super.onStop()
-        if (st == St.READ) ringAgain("La Palabra te espera donde la dejaste.", restart = false)
+        if (st == St.READ) {
+            if (quiet) {
+                stopListening()
+                st = St.RING
+                render()
+            } else {
+                ringAgain("La Palabra te espera donde la dejaste.", restart = false)
+            }
+        }
     }
 
     override fun onDestroy() {

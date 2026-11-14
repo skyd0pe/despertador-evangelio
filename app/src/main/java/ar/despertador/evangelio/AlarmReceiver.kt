@@ -7,11 +7,21 @@ import android.content.Intent
 /** Dispara la alarma. Es privado: solo lo puede llamar el sistema con el aviso que programó Lazarus. */
 class AlarmReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, intent: Intent) {
-        if (intent.action != AlarmScheduler.ACTION_FIRE) return
+        when (intent.action) {
+            Awake.ACTION_FALLBACK -> { Awake.fallback(c); return }
+            Awake.ACTION_DISMISS -> { Awake.answered(c); return }
+            AlarmScheduler.ACTION_FIRE -> {}
+            else -> return
+        }
         val id = intent.getIntExtra(AlarmScheduler.EXTRA_ID, -1)
         val a = AlarmStore.get(c, id)
         if (a == null || !a.enabled) return
-        AlarmService.start(c)
+        if (Prefs.skipIfAwake(c) && Awake.inUse(c)) {
+            // Ya está despierto y usando el celular: avisa en vez de sonar.
+            Awake.notify(c)
+        } else {
+            AlarmService.start(c)
+        }
         if (a.days == 0) {
             // Alarma de una sola vez: queda desactivada.
             AlarmStore.upsert(c, a.copy(enabled = false))
@@ -38,5 +48,6 @@ class BootReceiver : BroadcastReceiver() {
         AlarmScheduler.scheduleAll(c)
         GospelSyncJob.schedule(c)
         LockVerse.schedule(c)
+        Night.schedule(c)
     }
 }

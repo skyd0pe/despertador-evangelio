@@ -34,6 +34,19 @@ object Prefs {
     /** Ya probó la alarma al menos una vez. */
     fun tested(c: Context) = sp(c).getBoolean("tested", false)
 
+    /** Ya vio la presentación de la primera vez. */
+    fun introSeen(c: Context) = sp(c).getBoolean("intro_seen", false)
+
+    /** Recordatorio de las 20 h para poner la alarma. */
+    fun nightReminder(c: Context) = sp(c).getBoolean("night_reminder", true)
+
+    /** No sonar si el celular ya está en uso a la hora de la alarma. */
+    fun skipIfAwake(c: Context) = sp(c).getBoolean("skip_if_awake", true)
+
+    fun setIntroSeen(c: Context) = sp(c).edit().putBoolean("intro_seen", true).apply()
+    fun setNightReminder(c: Context, v: Boolean) = sp(c).edit().putBoolean("night_reminder", v).apply()
+    fun setSkipIfAwake(c: Context, v: Boolean) = sp(c).edit().putBoolean("skip_if_awake", v).apply()
+
     fun setSound(c: Context, v: String) = sp(c).edit().putString("sound", v).apply()
     fun setWelcomeDismissed(c: Context) = sp(c).edit().putBoolean("welcome_done", true).apply()
     fun setTested(c: Context) = sp(c).edit().putBoolean("tested", true).apply()

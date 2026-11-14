@@ -58,6 +58,10 @@
             android:foregroundServiceType="mediaPlayback" />
 
         <receiver
+            android:name=".NightReminderReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".LockVerseReceiver"
             android:exported="false" />
 

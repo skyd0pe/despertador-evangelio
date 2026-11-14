@@ -77,6 +77,9 @@ class MainActivity : Activity() {
     private lateinit var lockStatus: TextView
     private var lockBusy = false
 
+    // Presentación de la primera vez (mientras está, los gestos no cambian de pestaña)
+    private var introView: View? = null
+
     // Gestos para pasar de pestaña
     private lateinit var swipe: GestureDetector
     private var swipeBlocked = false
@@ -92,8 +95,23 @@ class MainActivity : Activity() {
         showTab(tab, animate = false)
         loadGospel(force = false)
         GospelSyncJob.schedule(this)
+        Night.schedule(this)
         Thread { GospelRepo.syncWeek(this) }.start()
         checkUpdate(manual = false)
+        handleIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    /** Desde el recordatorio de la noche: "Poner alarma" abre directo el selector de hora. */
+    private fun handleIntent(i: Intent?) {
+        if (i?.getBooleanExtra("new_alarm", false) != true) return
+        i.removeExtra("new_alarm")
+        showTab(0)
+        addAlarm()
     }
 
     override fun onPause() {
@@ -160,7 +178,10 @@ class MainActivity : Activity() {
         root.addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(hairline(p))
         root.addView(nav, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        setContentView(root)
+        val frame = FrameLayout(this)
+        frame.addView(root)
+        if (!Prefs.introSeen(this)) frame.addView(intro().also { introView = it })
+        setContentView(frame)
     }
 
     private fun page(inner: View) = ScrollView(this).apply {
@@ -195,7 +216,7 @@ class MainActivity : Activity() {
             override fun onDown(e: MotionEvent) = true
 
             override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
-                if (swipeBlocked || e1 == null) return false
+                if (swipeBlocked || e1 == null || introView?.parent != null) return false
                 val dx = e2.x - e1.x
                 val dy = e2.y - e1.y
                 if (kotlin.math.abs(dx) < dp(80) || kotlin.math.abs(dx) < kotlin.math.abs(dy) * 1.5f) return false
@@ -242,7 +263,13 @@ class MainActivity : Activity() {
     private fun alarmsPage(): View {
         val c = pageColumn()
         c.add(label("Lazarus", 36f, p.ink, Fonts.display(this, 500, 72)))
-        c.add(label("Levantate y escuchá.", 16f, p.muted, Fonts.display(this, 400, 24)), 2)
+        val motto = "«¡Lázaro, ven afuera!»  Juan 11, 43"
+        val cut = motto.indexOf("  ")
+        val sb = SpannableString(motto).apply {
+            setSpan(ForegroundColorSpan(p.accent), cut, motto.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            setSpan(android.text.style.RelativeSizeSpan(0.82f), cut, motto.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        c.add(label("", 17f, p.muted, Fonts.text(this)).apply { text = sb }, 4)
 
         updateBox = col(this)
         c.add(updateBox, 0)
@@ -629,6 +656,38 @@ class MainActivity : Activity() {
             Prefs.setRamp(this, it)
         }, 4)
         c.add(note("Arranca bajito y sube hasta el máximo. Si vuelve a sonar por silencio, suena fuerte de entrada."), 2)
+        val awakeRow = row(this)
+        awakeRow.add(settingTitle("No sonar si ya estás usando el celular"), weight = 1f)
+        val awakeSw = Switch(this).apply {
+            isChecked = Prefs.skipIfAwake(this@MainActivity)
+            contentDescription = "No sonar si ya estás usando el celular"
+            setOnCheckedChangeListener { _, on -> Prefs.setSkipIfAwake(this@MainActivity, on) }
+        }
+        tintSwitch(p, awakeSw)
+        awakeRow.add(awakeSw, matchWidth = false)
+        c.add(awakeRow, 22)
+        c.add(note(
+            "Si a la hora de la alarma el celular está desbloqueado y en uso, te avisa con una notificación " +
+                "en vez de sonar. Si en ${Awake.GRACE_MIN} minutos no respondés, suena igual, por si te dormiste " +
+                "con la pantalla prendida."
+        ), 2)
+
+        // Recordatorio
+        section(c, "Recordatorio")
+        val nightRow = row(this)
+        nightRow.add(settingTitle("Recordatorio a la noche"), weight = 1f)
+        val nightSw = Switch(this).apply {
+            isChecked = Prefs.nightReminder(this@MainActivity)
+            contentDescription = "Recordatorio a la noche"
+            setOnCheckedChangeListener { _, on ->
+                Prefs.setNightReminder(this@MainActivity, on)
+                Night.schedule(this@MainActivity)
+            }
+        }
+        tintSwitch(p, nightSw)
+        nightRow.add(nightSw, matchWidth = false)
+        c.add(nightRow, 16)
+        c.add(note("Cerca de las ${Night.HOUR} h te pregunta a qué hora querés despertarte mañana. Si ya tenés alarma, te recuerda la hora."), 2)
 
         // Permisos
         section(c, "Permisos")
@@ -717,7 +776,7 @@ class MainActivity : Activity() {
 
         val c = card(p)
         val head = row(this).apply { gravity = Gravity.TOP }
-        head.add(label("Bienvenido a Lazarus", 22f, p.ink, Fonts.display(this, 500, 36)), weight = 1f)
+        head.add(label("Configurá Lazarus", 22f, p.ink, Fonts.display(this, 500, 36)), weight = 1f)
         head.add(label("✕", 18f, p.muted).apply {
             gravity = Gravity.CENTER
             minWidth = dp(44)
@@ -806,6 +865,55 @@ class MainActivity : Activity() {
         }
         c.add(btn, 14)
         updateBox.add(c, 20)
+    }
+
+    // =====================================================================
+    // Presentación de la primera vez
+    // =====================================================================
+
+    private fun intro(): View {
+        val c = col(this).apply { setPadding(dp(28), dp(56), dp(28), dp(36)) }
+        c.add(eyebrow("Lazarus", p).apply { letterSpacing = 0.24f })
+        c.add(label("Bienvenido", 40f, p.ink, Fonts.display(this, 400, 96)), 18)
+        c.add(label("«¡Lázaro, ven afuera!»", 22f, p.ink, Fonts.text(this)), 14)
+        c.add(label("Juan 11, 43", 14f, p.accent, Fonts.ui(this, 600)), 4)
+        c.add(TrazoView(this, p.accent, 36), 20)
+
+        c.add(label(
+            "Lazarus es un despertador que no se apaga hasta que leés en voz alta el Evangelio del día.",
+            18f, p.ink
+        ).apply { setLineSpacing(0f, 1.4f) }, 20)
+        c.add(label(
+            "Levantarse temprano es la primera victoria del día. Acá esa victoria empieza escuchando la Palabra, " +
+                "como Lázaro, que oyó la voz de Jesús y se levantó.",
+            16f, p.muted
+        ).apply { setLineSpacing(0f, 1.45f) }, 12)
+
+        val note = card(p)
+        note.add(eyebrow("Un mensaje de quien hizo Lazarus", p))
+        note.add(label(
+            "¡Gracias por probar Lazarus! Espero que te ayude a conquistar un mejor descanso, como me ha " +
+                "ayudado también a mí. Cualquier duda o aporte que creas que puede ayudar a que la app mejore, " +
+                "me encantaría escucharlo.",
+            17f, p.ink, Fonts.text(this)
+        ).apply { setLineSpacing(0f, 1.45f) }, 10)
+        c.add(note, 28)
+
+        val overlay = ScrollView(this).apply {
+            setBackgroundColor(p.paper)
+            isClickable = true
+            isFillViewport = true
+            isVerticalScrollBarEnabled = false
+        }
+        c.add(pill("Empezar", p.primaryBg, p.primaryFg) {
+            Prefs.setIntroSeen(this)
+            overlay.animate().alpha(0f).setDuration(220).withEndAction {
+                (overlay.parent as? ViewGroup)?.removeView(overlay)
+                refreshWelcome()
+            }.start()
+        }, 32)
+        overlay.addView(c)
+        return overlay
     }
 
     // =====================================================================
