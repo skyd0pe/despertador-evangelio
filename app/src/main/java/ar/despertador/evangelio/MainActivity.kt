@@ -16,7 +16,10 @@ import android.speech.SpeechRecognizer
 import android.text.SpannableString
 import android.text.Spanned
 import android.text.style.ForegroundColorSpan
+import android.graphics.Rect
+import android.view.GestureDetector
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -54,6 +57,11 @@ class MainActivity : Activity() {
 
     // Ajustes
     private lateinit var permBox: LinearLayout
+    private var showPermDetail = false
+
+    // Gestos para pasar de pestaña
+    private lateinit var swipe: GestureDetector
+    private var swipeBlocked = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         p = Palette(this)
@@ -62,7 +70,8 @@ class MainActivity : Activity() {
         p.applyTo(this)
         tab = savedInstanceState?.getInt("tab") ?: 0
         buildUi()
-        showTab(tab)
+        setupSwipe()
+        showTab(tab, animate = false)
         loadGospel(force = false)
     }
 
@@ -116,7 +125,8 @@ class MainActivity : Activity() {
 
     private fun pageColumn() = col(this).apply { setPadding(dp(24), dp(40), dp(24), dp(36)) }
 
-    private fun showTab(i: Int) {
+    private fun showTab(i: Int, animate: Boolean = true) {
+        val from = tab
         tab = i
         pages.forEachIndexed { k, v -> v.visibility = if (k == i) View.VISIBLE else View.GONE }
         tabs.forEachIndexed { k, t ->
@@ -124,6 +134,60 @@ class MainActivity : Activity() {
             t.setTextColor(if (on) p.accent else p.muted)
             t.typeface = Fonts.ui(this, if (on) 600 else 400)
         }
+        if (animate && from != i) {
+            // La página nueva entra desde el lado hacia el que se va.
+            val v = pages[i]
+            val dir = if (i > from) 1 else -1
+            v.translationX = dir * dpf(48f)
+            v.alpha = 0f
+            v.animate().translationX(0f).alpha(1f).setDuration(180).start()
+        }
+    }
+
+    /** Deslizar a la izquierda o a la derecha cambia de pestaña. */
+    private fun setupSwipe() {
+        swipe = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent) = true
+
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
+                if (swipeBlocked || e1 == null) return false
+                val dx = e2.x - e1.x
+                val dy = e2.y - e1.y
+                if (kotlin.math.abs(dx) < dp(80) || kotlin.math.abs(dx) < kotlin.math.abs(dy) * 1.5f) return false
+                if (kotlin.math.abs(vx) < dp(250)) return false
+                val next = if (dx < 0) tab + 1 else tab - 1
+                if (next !in pages.indices) return false
+                showTab(next)
+                return true
+            }
+        })
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (::swipe.isInitialized) {
+            if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
+                // Las barras deslizables y los interruptores se arrastran de costado: ahí no cambia de pestaña.
+                swipeBlocked = touchesSlider(window.decorView, ev.rawX.toInt(), ev.rawY.toInt())
+            }
+            swipe.onTouchEvent(ev)
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private fun touchesSlider(v: View, x: Int, y: Int): Boolean {
+        if (v.visibility != View.VISIBLE) return false
+        if (v is SeekBar || v is Switch) {
+            val r = Rect()
+            if (v.getGlobalVisibleRect(r)) {
+                r.inset(-dp(8), -dp(8))
+                if (r.contains(x, y)) return true
+            }
+            return false
+        }
+        if (v is ViewGroup) {
+            for (k in 0 until v.childCount) if (touchesSlider(v.getChildAt(k), x, y)) return true
+        }
+        return false
     }
 
     // =====================================================================
@@ -559,6 +623,23 @@ class MainActivity : Activity() {
         val list = perms()
         val missing = list.count { !it.ok }
         tabs[2].text = if (missing > 0) "Ajustes · $missing" else "Ajustes"
+
+        if (missing == 0) {
+            // Todo listo: se resume en una línea y el detalle queda plegado.
+            val r = row(this).apply { setPadding(0, dp(14), 0, dp(6)) }
+            val texts = col(this)
+            texts.add(label("Todo activado", 16f, p.ink, Fonts.ui(this, 600)))
+            texts.add(label("Lazarus tiene lo que necesita para sonar a tiempo y escucharte.", 13f, p.muted), 2)
+            r.add(texts, weight = 1f)
+            r.add(label("✓", 20f, p.accent), matchWidth = false)
+            permBox.add(r)
+            permBox.add(textButton(if (showPermDetail) "Ocultar detalle" else "Ver detalle", p.accent) {
+                showPermDetail = !showPermDetail
+                refreshPermissions()
+            })
+            if (!showPermDetail) return
+        }
+
         list.forEach { pr ->
             val r = row(this).apply { setPadding(0, dp(12), 0, dp(12)) }
             val texts = col(this)
