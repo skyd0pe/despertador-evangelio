@@ -111,7 +111,7 @@ class MainActivity : Activity() {
         if (i?.getBooleanExtra("new_alarm", false) != true) return
         i.removeExtra("new_alarm")
         showTab(0)
-        addAlarm()
+        addAlarm(forTomorrow = true)
     }
 
     override fun onPause() {
@@ -412,13 +412,18 @@ class MainActivity : Activity() {
         }, a.hour, a.minute, true).show()
     }
 
-    private fun addAlarm() {
-        TimePickerDialog(this, p.dialogTheme, { _, h, m ->
-            val created = AlarmStore.create(this, h, m)
+    /** [forTomorrow]: desde la pregunta de la noche; crea una alarma de una sola vez. */
+    private fun addAlarm(forTomorrow: Boolean = false) {
+        val next = AlarmScheduler.next(this)?.first
+        val (h0, m0) = if (forTomorrow && next != null) next.hour to next.minute else 7 to 0
+        val dlg = TimePickerDialog(this, p.dialogTheme, { _, h, m ->
+            val created = AlarmStore.create(this, h, m, if (forTomorrow) 0 else Alarm.ALL)
             prefetch()
             refreshAlarms()
             sleepNote(created)
-        }, 7, 0, true).show()
+        }, h0, m0, true)
+        if (forTomorrow) dlg.setTitle("¿A qué hora te despertás mañana?")
+        dlg.show()
     }
 
     private fun confirmDelete(a: Alarm) {
@@ -675,10 +680,10 @@ class MainActivity : Activity() {
         // Recordatorio
         section(c, "Recordatorio")
         val nightRow = row(this)
-        nightRow.add(settingTitle("Recordatorio a la noche"), weight = 1f)
+        nightRow.add(settingTitle("Preguntar cada noche"), weight = 1f)
         val nightSw = Switch(this).apply {
             isChecked = Prefs.nightReminder(this@MainActivity)
-            contentDescription = "Recordatorio a la noche"
+            contentDescription = "Preguntar cada noche a qué hora te despertás"
             setOnCheckedChangeListener { _, on ->
                 Prefs.setNightReminder(this@MainActivity, on)
                 Night.schedule(this@MainActivity)
@@ -687,7 +692,10 @@ class MainActivity : Activity() {
         tintSwitch(p, nightSw)
         nightRow.add(nightSw, matchWidth = false)
         c.add(nightRow, 16)
-        c.add(note("Cerca de las ${Night.HOUR} h te pregunta a qué hora querés despertarte mañana. Si ya tenés alarma, te recuerda la hora."), 2)
+        c.add(note(
+            "Todas las noches a las ${Night.HOUR} h te pregunta a qué hora te despertás mañana. " +
+                "La hora que elijas desde ahí queda como alarma de una sola vez."
+        ), 2)
 
         // Permisos
         section(c, "Permisos")

@@ -87,11 +87,14 @@ object Awake {
     }
 }
 
-/** Todas las noches, cerca de las 20 h, pregunta a qué hora te querés despertar mañana. */
+/**
+ * Todas las noches a las 22 h pregunta a qué hora te despertás mañana. Siempre pregunta, aunque
+ * ya haya una alarma: en ese caso la menciona, para dejarla o elegir otra.
+ */
 object Night {
     private const val CHANNEL = "recordatorio"
     private const val NOTIF = 22
-    const val HOUR = 20
+    const val HOUR = 22
 
     private fun pi(c: Context) = PendingIntent.getBroadcast(
         c, 500, Intent(c, NightReminderReceiver::class.java),
@@ -114,57 +117,53 @@ object Night {
         am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t.timeInMillis, pi(c))
     }
 
+    /** La pregunta va cambiando cada noche. */
     private val ASK = listOf(
-        "¿A qué hora te despertarías mañana?" to "Elegí la hora y dejá que la Palabra te despierte.",
-        "Mañana hay otra batalla" to "¿A qué hora querés ganar la primera?",
-        "Lázaro no eligió la hora. Vos sí." to "Poné tu alarma para mañana.",
-        "Antes de que se haga tarde" to "¿A qué hora te levantás mañana?",
-        "Mañana hay una Palabra para vos" to "¿A qué hora querés escucharla?",
+        "¿A qué hora te despertás mañana?" to "Elegí la hora y dejá que la Palabra te despierte.",
+        "¿A qué hora querés ganar la primera batalla de mañana?" to "Elegí la hora antes de dormirte.",
+        "Lázaro no eligió la hora. Vos sí." to "¿A qué hora te levantás mañana?",
+        "¿A qué hora te despertarías mañana?" to "Mañana hay una Palabra para vos.",
+        "Antes de dormir: ¿a qué hora te levantás?" to "Elegí la hora de mañana.",
     )
 
     fun post(c: Context) {
         if (!Prefs.nightReminder(c)) return
         val nm = c.getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Recordatorio a la noche", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "Cerca de las 20 h, para poner la alarma de mañana"
+            NotificationChannel(CHANNEL, "Pregunta de la noche", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "A las $HOUR h, para elegir a qué hora te despertás mañana"
             }
         )
-        val open = PendingIntent.getActivity(
-            c, 501,
-            Intent(c, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        val newAlarm = PendingIntent.getActivity(
+        val flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        val pick = PendingIntent.getActivity(
             c, 502,
-            Intent(c, MainActivity::class.java).putExtra("new_alarm", true)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            Intent(c, MainActivity::class.java).putExtra("new_alarm", true).addFlags(flags),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
+        val (title, text) = ASK[Calendar.getInstance().get(Calendar.DAY_OF_YEAR) % ASK.size]
         val next = AlarmScheduler.next(c)
-        val soon = next != null && next.second - System.currentTimeMillis() < 20L * 3600 * 1000
-        val b = Notification.Builder(c, CHANNEL)
-            .setSmallIcon(R.drawable.ic_stat_alarm)
-            .setCategory(Notification.CATEGORY_REMINDER)
-            .setContentIntent(open)
-            .setAutoCancel(true)
-        if (soon && next != null) {
+        val body = if (next != null && next.second - System.currentTimeMillis() < 20L * 3600 * 1000) {
             val cal = Calendar.getInstance().apply { timeInMillis = next.second }
             val hm = String.format(Locale.US, "%02d:%02d", cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
-            b.setContentTitle("Mañana te despierto a las $hm")
-                .setContentText("Si querés otra hora, cambiala ahora.")
-        } else {
-            val (title, text) = ASK[Calendar.getInstance().get(Calendar.DAY_OF_YEAR) % ASK.size]
-            b.setContentTitle(title)
-                .setContentText(text)
-                .addAction(Notification.Action.Builder(null, "Poner alarma", newAlarm).build())
-        }
-        nm.notify(NOTIF, b.build())
+            "Ahora tenés una a las $hm. ¿La dejás así o elegís otra?"
+        } else text
+
+        val n = Notification.Builder(c, CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_alarm)
+            .setCategory(Notification.CATEGORY_REMINDER)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(Notification.BigTextStyle().bigText(body))
+            .setContentIntent(pick)
+            .addAction(Notification.Action.Builder(null, "Elegir hora", pick).build())
+            .setAutoCancel(true)
+            .build()
+        nm.notify(NOTIF, n)
     }
 }
 
-/** Privado: solo lo llama el aviso de las 20 h que programó Lazarus. */
+/** Privado: solo lo llama el aviso de las 22 h que programó Lazarus. */
 class NightReminderReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, intent: Intent) {
         Night.post(c)

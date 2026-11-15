@@ -77,9 +77,9 @@ object AlarmStore {
         save(c, all(c).filter { it.id != id })
     }
 
-    fun create(c: Context, hour: Int, minute: Int): Alarm {
+    fun create(c: Context, hour: Int, minute: Int, days: Int = Alarm.ALL): Alarm {
         val list = all(c)
-        val a = Alarm((list.maxOfOrNull { it.id } ?: 0) + 1, hour, minute, Alarm.ALL, true)
+        val a = Alarm((list.maxOfOrNull { it.id } ?: 0) + 1, hour, minute, days, true)
         save(c, list + a)
         return a
     }

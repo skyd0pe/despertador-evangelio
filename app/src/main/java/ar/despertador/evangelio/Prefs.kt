@@ -37,7 +37,7 @@ object Prefs {
     /** Ya vio la presentación de la primera vez. */
     fun introSeen(c: Context) = sp(c).getBoolean("intro_seen", false)
 
-    /** Recordatorio de las 20 h para poner la alarma. */
+    /** Pregunta de las 22 h: a qué hora te despertás mañana. */
     fun nightReminder(c: Context) = sp(c).getBoolean("night_reminder", true)
 
     /** No sonar si el celular ya está en uso a la hora de la alarma. */
