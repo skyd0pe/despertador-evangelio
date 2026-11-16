@@ -23,6 +23,7 @@ class VersePickerLiveTest {
     }
 
     private fun html(s: String): String = s
+        .replace(Regex("\\s*\r?\n\\s*"), " ")
         .replace(Regex("(?i)<br\\s*/?>"), "\n")
         .replace(Regex("<[^>]+>"), "")
         .replace("&nbsp;", " ").replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'")

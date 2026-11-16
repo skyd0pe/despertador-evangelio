@@ -22,7 +22,7 @@ object VersePicker {
             for (cand in candidates(r)) {
                 val clean = tidy(cand.text)
                 if (clean.length !in MIN..MAX) continue
-                all.add(Pick(clean, r.ref, score(clean, r.psalm, cand.quote)))
+                all.add(Pick(clean, r.ref, score(clean, r.psalm, cand.quote) - if (cand.pair) 1.2 else 0.0))
             }
         }
         // Sin repetidos (un fragmento puede salir como oración y como cita).
@@ -32,7 +32,7 @@ object VersePicker {
     private const val MIN = 35
     private const val MAX = 210
 
-    private class Cand(val text: String, val quote: Boolean)
+    private class Cand(val text: String, val quote: Boolean, val pair: Boolean = false)
 
     private fun candidates(r: Reading): List<Cand> {
         val out = ArrayList<Cand>()
@@ -51,7 +51,7 @@ object VersePicker {
             for ((i, s) in ss.withIndex()) {
                 out.add(Cand(s, false))
                 // Una oración corta junto con la siguiente suele ser la idea completa.
-                if (s.length < 80 && i + 1 < ss.size) out.add(Cand("$s ${ss[i + 1]}", false))
+                if (s.length < 80 && i + 1 < ss.size) out.add(Cand("$s ${ss[i + 1]}", false, pair = true))
             }
             // Lo que Dios (o Jesús) dice entre comillas, sin la narración de alrededor.
             for (m in Regex("«([^«»]{30,220})»").findAll(flat)) {
@@ -71,10 +71,12 @@ object VersePicker {
     /** Saca encabezados de carta ("Hermanos:") y comillas sueltas. */
     private fun tidy(s: String): String {
         var t = s.trim()
-        t = t.replace(Regex("^(Queridos hermanos|Hermanos|Queridos|Carísimos|Hijos míos|Hijitos|Amados)\\s*:\\s*", RegexOption.IGNORE_CASE), "")
+        t = t.replace(Regex("^(Queridos hermanos|Querido hermano|Querida hermana|Hermanos|Queridos|Querido|Carísimos|Hijos míos|Hijitos|Amados)\\s*[:,]\\s*", RegexOption.IGNORE_CASE), "")
         t = t.trim('«', '»', '"', '“', '”', ' ', '—', '–', '-')
         // Comillas desparejas dentro: mejor sacarlas.
         if (t.count { it == '«' } != t.count { it == '»' }) t = t.replace("«", "").replace("»", "")
+        if (t.count { it == '"' } % 2 == 1) t = t.replace("\"", "")
+        if (t.count { it == '“' } != t.count { it == '”' }) t = t.replace("“", "").replace("”", "")
         if (t.isNotEmpty() && t[0].isLowerCase()) t = t[0].uppercase() + t.substring(1)
         return t.trim()
     }
@@ -83,23 +85,23 @@ object VersePicker {
         "^(Y|E|Pero|Mas|Entonces|Por eso|Por esto|Porque|Pues|Así|Asimismo|Luego|Después|Cuando|Mientras|" +
             "Ellos|Ellas|Él|El que|Ella|Este|Esta|Estos|Estas|Esto|Eso|Aquel|Aquella|Aquellos|Allí|Ahí|Aquí|" +
             "De modo|De manera|De este modo|Por lo tanto|Sin embargo|Además|También|Al ver|Al oír|Al llegar|" +
-            "En aquel|En aquellos|En ese|En esos|Dicho esto|Habiendo|Tras|Apenas|Inmediatamente|Enseguida|Les|Le|Lo|La|Los|Las|Se)\\b",
+            "En aquel|En aquellos|En ese|En esos|Dicho esto|Habiendo|Tras|Apenas|Inmediatamente|Enseguida|Les|Le|Lo|La|Los|Las|Se)(?!\\p{L})",
         RegexOption.IGNORE_CASE
     )
 
     private val NARRATIVE = Regex(
-        "\\b(dijo|dijeron|respondió|respondieron|contestó|preguntó|preguntaron|fue|fueron|llegó|llegaron|salió|" +
+        "(?<!\\p{L})(dijo|dijeron|respondió|respondieron|contestó|preguntó|preguntaron|fue|fueron|llegó|llegaron|salió|" +
             "salieron|entró|entraron|vino|vinieron|había|habían|era|eran|estaba|estaban|se acercó|tomó|tomaron|" +
-            "partió|subió|bajó|envió|mandó|ordenó|reinó|reinado|año|años|hijo de|hija de)\\b",
+            "partió|subió|bajó|envió|mandó|ordenó|reinó|reinado|año|años|hijo de|hija de)(?!\\p{L})",
         RegexOption.IGNORE_CASE
     )
 
     private val HOLY = Regex(
-        "\\b(Señor|Dios|Jesús|Cristo|Jesucristo|Espíritu|amor|ama|aman|amó|fe|gracia|paz|vida|salva|salvación|" +
+        "(?<!\\p{L})(Señor|Dios|Jesús|Cristo|Jesucristo|Espíritu|amor|ama|aman|amó|fe|gracia|paz|vida|salva|salvación|" +
             "salvador|corazón|misericordia|esperanza|luz|alegría|alégrense|gozo|justicia|perdón|perdona|Palabra|" +
             "Reino|verdad|fiel|fidelidad|bendito|bendice|bendición|feliz|felices|eterno|eterna|gloria|santo|" +
             "confía|confíen|confianza|refugio|roca|pastor|fuerza|consuelo|libera|cuida|guarda|ayuda|camino|" +
-            "bondad|ternura|compasión|clemente|promesa|resurrección|cielo)\\b",
+            "bondad|ternura|compasión|clemente|promesa|resurrección|cielo)(?!\\p{L})",
         RegexOption.IGNORE_CASE
     )
 
@@ -107,11 +109,20 @@ object VersePicker {
         "^(El Señor|Dios|Feliz|Felices|Bendito|Bendice|Alaben|Alabado|Den gracias|Canten|Aclamen|Yo soy|Yo estoy|" +
             "No teman|No temas|No tengas miedo|Confía|Confíen|Busquen|Vuelvan|Escuchen|Escucha|Alégrense|Amen|Ámense|" +
             "Tengan|Sean|Permanezcan|Velen|Ten|Mi alma|Señor|Tú eres|Tu palabra|Tus palabras|Grande es|Qué bueno|" +
-            "Cuán|Gusten|Lávense|Purifícame|Crea en mí|Todo lo puedo|Nada podrá|Si Dios)\\b",
+            "Cuán|Gusten|Lávense|Purifícame|Crea en mí|Todo lo puedo|Nada podrá|Si Dios)(?!\\p{L})",
         RegexOption.IGNORE_CASE
     )
 
-    private val YOU = Regex("\\b(tú|te|ti|tu|tus|contigo|vos|ustedes|les|su corazón|ustedes mismos)\\b", RegexOption.IGNORE_CASE)
+    private val FIRST = Regex("(?<!\\p{L})(yo|me|mi|mí|mis|conmigo)(?!\\p{L})", RegexOption.IGNORE_CASE)
+    private val THIRD = Regex("(?<!\\p{L})(ella|ellas|ellos|él)(?!\\p{L})")
+    private val VOCATIVE = Regex("(,\\s*|^)(hermano|hermanos|hermana|hijo mío|hijos míos)\\s*[,:]", RegexOption.IGNORE_CASE)
+    private val GROUPS = Regex(
+        "(?<!\\p{L})(ancianos|ancianas|mujeres|jóvenes|esclavos|siervos|maridos|esposas|gobernantes|autoridades|viudas|" +
+            "obispo|diáconos|presbíteros)(?!\\p{L})",
+        RegexOption.IGNORE_CASE
+    )
+
+    private val YOU = Regex("(?<!\\p{L})(tú|te|ti|tu|tus|contigo|vos|ustedes|les|su corazón|ustedes mismos)(?!\\p{L})", RegexOption.IGNORE_CASE)
 
     private val ALLOWED_CAPS = setOf(
         "Dios", "Señor", "Jesús", "Cristo", "Jesucristo", "Espíritu", "Santo", "Padre", "Hijo", "Reino", "Palabra",
@@ -122,12 +133,22 @@ object VersePicker {
         var s = 0.0
         if (CONNECTOR.containsMatchIn(t)) s -= 7
         if (STRONG_START.containsMatchIn(t)) s += 3
-        s += minOf(HOLY.findAll(t).count(), 4) * 1.6
+        s += minOf(HOLY.findAll(t).count(), 3) * 1.6
         if (YOU.containsMatchIn(t)) s += 1.0
         if (quote) s += 2.0
         if (psalm) s += 1.2
         s -= minOf(NARRATIVE.findAll(t).count(), 3) * 2.2
         if (Regex("^Yo,\\s+\\p{Lu}").containsMatchIn(t)) s -= 5 // "Yo, Pablo…"
+        if (!psalm) {
+            // Fuera del salmo, la primera persona suele ser el autor contando algo suyo ("No quiero recordarte…").
+            if (!quote) s -= minOf(FIRST.findAll(t).count(), 2) * 1.2
+            // "ella", "ellos": ¿quiénes? Sin contexto no se entiende.
+            s -= minOf(THIRD.findAll(t).count(), 2) * 1.5
+            // Le habla a alguien en particular ("Sí, hermano, …").
+            if (VOCATIVE.containsMatchIn(t)) s -= 2.0
+        }
+        // Indicaciones para un grupo puntual (ancianos, esposas, esclavos…).
+        if (GROUPS.containsMatchIn(t)) s -= 2.5
         // Nombres propios en medio de la frase (personas, lugares): piden contexto.
         // No cuenta la mayúscula al empezar oración o verso.
         var names = 0

@@ -576,6 +576,14 @@ class MainActivity : Activity() {
                 "del día: salmos, profetas, cartas y Evangelios. Al desactivarlo, la pantalla de bloqueo " +
                 "vuelve a mostrar tu fondo de inicio."
         ), 2)
+        c.add(settingTitle("Estilo"), 16)
+        c.add(choices(listOf("azul" to "Azul y dorado", "negro" to "Negro"), LockVerse.style(this)) {
+            LockVerse.setStyle(this, it)
+            Thread {
+                LockVerse.update(this)
+                runOnUiThread { refreshLockPreview() }
+            }.start()
+        }, 4)
         lockStatus = note("")
         lockStatus.setTextColor(p.warn)
         lockStatus.visibility = View.GONE

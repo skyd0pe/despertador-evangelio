@@ -147,6 +147,10 @@ object LockVerse {
 
     fun enabled(c: Context) = sp(c).getBoolean("on", false)
 
+    /** Estilo del fondo: "azul" (la marca) o "negro" (fondo negro y letras blancas). */
+    fun style(c: Context) = sp(c).getString("style", "azul") ?: "azul"
+    fun setStyle(c: Context, v: String) = sp(c).edit().putString("style", v).apply()
+
     /** Si este celular deja que una app cambie el fondo de la pantalla de bloqueo. */
     fun supported(c: Context): Boolean {
         val wm = WallpaperManager.getInstance(c)
@@ -192,7 +196,7 @@ object LockVerse {
     fun update(c: Context, force: Boolean = false): Boolean {
         if (!enabled(c)) return true
         val date = GospelRepo.today()
-        val stamp = "v2/$date/${offset(c, date)}/${Prefs.ecumenical(c)}/${Prefs.theme(c).key}"
+        val stamp = "v3/$date/${offset(c, date)}/${Prefs.ecumenical(c)}/${style(c)}"
         if (!force && sp(c).getString("applied", null) == stamp) return true
         if (!supported(c)) return false
         val v = today(c) ?: return false
@@ -226,19 +230,22 @@ object LockVerse {
     }
 
     /**
-     * Dibuja el fondo: azul Vigilia (negro en AMOLED), el versículo en Literata, el trazo dorado
+     * Dibuja el fondo: azul Vigilia con detalles dorados, o negro con letras blancas; el versículo en Literata, el trazo
      * y la cita. Va por debajo del centro para no chocar con el reloj de la pantalla de bloqueo.
      */
     fun render(c: Context, v: Verse, w: Int, h: Int): Bitmap {
         val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         val cv = Canvas(bmp)
-        val amoled = Prefs.theme(c) == ThemeMode.AMOLED
-        cv.drawColor(if (amoled) 0xFF000000.toInt() else Brand.VIGILIA)
+        val black = style(c) == "negro"
+        val white = 0xFFFFFFFF.toInt()
+        cv.drawColor(if (black) 0xFF000000.toInt() else Brand.VIGILIA)
+        // En negro todo es blanco; la cita y el trazo, un poco más suaves para que mande el versículo.
+        val accent = if (black) 0xBFFFFFFF.toInt() else Brand.ORO
 
         val maxW = (w * 0.8f).toInt()
         val text = "«${v.text}»"
         val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Brand.ALBA
+            color = if (black) white else Brand.ALBA
             typeface = Fonts.text(c, 400)
         }
         // Achica la letra hasta que el versículo entre en un tercio de la pantalla.
@@ -256,7 +263,7 @@ object LockVerse {
         }
 
         val ref = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Brand.ORO
+            color = accent
             typeface = Fonts.ui(c, 600)
             textSize = w * 0.03f
             letterSpacing = 0.16f
@@ -291,7 +298,7 @@ object LockVerse {
             style = Paint.Style.STROKE
             strokeCap = Paint.Cap.ROUND
             strokeWidth = w * 0.005f
-            color = Brand.ORO
+            color = accent
         })
 
         cv.drawText(v.ref.uppercase(), w / 2f, y0 + trazoH + gap + ref.textSize * 0.8f, ref)
