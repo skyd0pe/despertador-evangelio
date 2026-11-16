@@ -58,6 +58,7 @@ class MainActivity : Activity() {
 
     // Ajustes
     private lateinit var permBox: LinearLayout
+    private lateinit var sleepStatus: TextView
     private var showPermDetail = false
 
     // Bienvenida, versión nueva y avisos
@@ -128,6 +129,7 @@ class MainActivity : Activity() {
         super.onResume()
         refreshAlarms()
         refreshPermissions()
+        refreshSleep()
         refreshWelcome()
         Thread {
             LockVerse.update(this)
@@ -312,6 +314,7 @@ class MainActivity : Activity() {
 
     private fun refreshAlarms() {
         val ok = AlarmScheduler.scheduleAll(this)
+        SleepCap.check(this) // si cambió la alarma, el tope de sueño puede hacer falta o no
         alarmsBox.removeAllViews()
         AlarmStore.all(this).forEach { alarmsBox.add(alarmCard(it), 10) }
 
@@ -697,6 +700,47 @@ class MainActivity : Activity() {
                 "La hora que elijas desde ahí queda como alarma de una sola vez."
         ), 2)
 
+        // Sueño
+        section(c, "Sueño")
+        val capRow = row(this)
+        capRow.add(settingTitle("Despertarme si duermo de más"), weight = 1f)
+        val capSw = Switch(this).apply {
+            isChecked = Prefs.sleepCap(this@MainActivity) && SleepCap.supported()
+            isEnabled = SleepCap.supported()
+            contentDescription = "Despertarme si duermo de más"
+            setOnCheckedChangeListener { _, on ->
+                Prefs.setSleepCap(this@MainActivity, on)
+                if (on && !SleepCap.hasAccess(this@MainActivity)) {
+                    showToast(
+                        "Falta un permiso",
+                        "Buscá Lazarus en la lista y activá “Permitir acceso a datos de uso”."
+                    )
+                    openUsageAccess()
+                }
+                SleepCap.check(this@MainActivity)
+                refreshSleep()
+                refreshPermissions()
+            }
+        }
+        tintSwitch(p, capSw)
+        capRow.add(capSw, matchWidth = false)
+        c.add(capRow, 16)
+        c.add(settingTitle("Si dormís más de"), 18)
+        c.add(choices(listOf(7 to "7 h", 8 to "8 h", 9 to "9 h"), Prefs.sleepHours(this)) {
+            Prefs.setSleepHours(this, it)
+            SleepCap.check(this)
+            refreshSleep()
+        }, 4)
+        c.add(note(
+            "Desde las ${SleepCap.NIGHT_START} h mira a qué hora dejás el celular: si pasan " +
+                "${SleepCap.MIN_IDLE_MIN} minutos sin desbloquearlo, cuenta que te dormiste a esa hora. " +
+                "Suena como cualquier alarma de Lazarus, con el Evangelio. Si tu alarma de siempre " +
+                "suena antes, no hace falta y no suena. Solo lee cuándo se prende y apaga la pantalla; " +
+                "nada sale del celular."
+        ), 2)
+        sleepStatus = note("")
+        c.add(sleepStatus, 10)
+
         // Permisos
         section(c, "Permisos")
         permBox = col(this)
@@ -1021,6 +1065,11 @@ class MainActivity : Activity() {
         list.add(Perm("Batería sin restricciones", "Para que el sistema no la duerma.", pm.isIgnoringBatteryOptimizations(packageName)) {
             open(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, pkg))
         })
+        if (Prefs.sleepCap(this) && SleepCap.supported()) {
+            list.add(Perm("Acceso a datos de uso", "Para saber a qué hora dejaste el celular (tope de sueño).", SleepCap.hasAccess(this)) {
+                openUsageAccess()
+            })
+        }
         list.add(Perm(
             "Reconocimiento de voz", "Lo da la app de Google. Si falta, instalala o actualizala.",
             SpeechRecognizer.isRecognitionAvailable(this), null
@@ -1034,6 +1083,23 @@ class MainActivity : Activity() {
         } catch (e: Exception) {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
         }
+    }
+
+    /** Abre la pantalla del permiso de datos de uso, directo en Lazarus si el celular lo permite. */
+    private fun openUsageAccess() {
+        try {
+            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS, Uri.parse("package:$packageName")))
+        } catch (e: Exception) {
+            open(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        }
+    }
+
+    private fun refreshSleep() {
+        if (!::sleepStatus.isInitialized) return
+        val on = Prefs.sleepCap(this) && SleepCap.supported()
+        sleepStatus.visibility = if (on || !SleepCap.supported()) View.VISIBLE else View.GONE
+        sleepStatus.text = SleepCap.status(this)
+        sleepStatus.setTextColor(if (SleepCap.supported() && SleepCap.hasAccess(this)) p.accent else p.warn)
     }
 
     private fun refreshPermissions() {

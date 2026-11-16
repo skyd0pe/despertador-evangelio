@@ -43,9 +43,18 @@ object Prefs {
     /** No sonar si el celular ya está en uso a la hora de la alarma. */
     fun skipIfAwake(c: Context) = sp(c).getBoolean("skip_if_awake", true)
 
+    /** Tope de sueño: despertar si dormís más de [sleepHours] horas. */
+    fun sleepCap(c: Context) = sp(c).getBoolean("sleep_cap", false)
+
+    /** Horas de sueño a partir de las cuales suena el tope (7, 8 o 9). */
+    fun sleepHours(c: Context) = sp(c).getInt("sleep_hours", 8)
+
     fun setIntroSeen(c: Context) = sp(c).edit().putBoolean("intro_seen", true).apply()
     fun setNightReminder(c: Context, v: Boolean) = sp(c).edit().putBoolean("night_reminder", v).apply()
     fun setSkipIfAwake(c: Context, v: Boolean) = sp(c).edit().putBoolean("skip_if_awake", v).apply()
+
+    fun setSleepCap(c: Context, v: Boolean) = sp(c).edit().putBoolean("sleep_cap", v).apply()
+    fun setSleepHours(c: Context, v: Int) = sp(c).edit().putInt("sleep_hours", v).apply()
 
     fun setSound(c: Context, v: String) = sp(c).edit().putString("sound", v).apply()
     fun setWelcomeDismissed(c: Context) = sp(c).edit().putBoolean("welcome_done", true).apply()

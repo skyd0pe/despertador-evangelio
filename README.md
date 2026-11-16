@@ -19,6 +19,9 @@ App de Android: un despertador que no se apaga hasta que leés en voz alta el Ev
 - Tamaño de la letra, con muestra.
 - Modo ecuménico: oculta el calendario litúrgico y las fórmulas católicas; deja solo el texto bíblico.
 - Cuánto hay que leer bien, a los cuántos segundos de silencio vuelve a sonar y volumen progresivo.
+- Tope de sueño (opcional): si dormís más de 7, 8 o 9 horas, te despierta. Estima la hora en que
+  te dormiste por cuándo dejaste el celular (90 minutos sin desbloquearlo desde las 21 h). Necesita el
+  permiso de "Acceso a datos de uso" y Android 9 o más nuevo.
 
 Un punto de color marca el tiempo litúrgico (verde, morado, blanco, rojo, rosa). Al terminar de leer se suma un día a la racha.
 
