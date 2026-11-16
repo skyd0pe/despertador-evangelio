@@ -10,13 +10,17 @@ class AlarmReceiver : BroadcastReceiver() {
         when (intent.action) {
             Awake.ACTION_FALLBACK -> { Awake.fallback(c); return }
             Awake.ACTION_DISMISS -> { Awake.answered(c); return }
+            SleepCap.ACTION_CHECK -> { SleepCap.check(c); return }
+            SleepCap.ACTION_FIRE -> { SleepCap.fire(c); return }
             AlarmScheduler.ACTION_FIRE -> {}
             else -> return
         }
         val id = intent.getIntExtra(AlarmScheduler.EXTRA_ID, -1)
         val a = AlarmStore.get(c, id)
         if (a == null || !a.enabled) return
-        if (Prefs.skipIfAwake(c) && Awake.inUse(c)) {
+        if (SleepCap.skipRegular(c)) {
+            // Hace un rato te despertó el tope de sueño: no vuelve a sonar.
+        } else if (Prefs.skipIfAwake(c) && Awake.inUse(c)) {
             // Ya está despierto y usando el celular: avisa en vez de sonar.
             Awake.notify(c)
         } else {
@@ -49,5 +53,6 @@ class BootReceiver : BroadcastReceiver() {
         GospelSyncJob.schedule(c)
         LockVerse.schedule(c)
         Night.schedule(c)
+        SleepCap.check(c)
     }
 }
