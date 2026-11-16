@@ -19,7 +19,6 @@ import android.view.WindowManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Calendar
-import kotlin.random.Random
 
 /** Un versículo para la pantalla de bloqueo: el texto y de dónde sale. */
 data class Verse(val text: String, val ref: String)
@@ -87,46 +86,22 @@ object VerseRepo {
             .joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim()
     }
 
-    /** Fragmentos que sirven: una estrofa del salmo, o una oración completa de las otras lecturas. */
-    private fun candidates(r: Reading): List<String> {
-        val out = ArrayList<String>()
-        if (r.psalm) {
-            for (stanza in r.text.split(Regex("\n\\s*\n"))) {
-                val lines = stanza.lines().map { it.trim() }.filter { it.isNotEmpty() }
-                if (lines.isEmpty() || lines.size > 4) continue
-                val s = lines.joinToString("\n")
-                if (s.length in 30..230) out.add(s)
-            }
-        } else {
-            val flat = r.text.replace(Regex("\\s*\n\\s*"), " ")
-            for (s in flat.split(Regex("(?<=[.!?»])\\s+(?=[«¿¡A-ZÁÉÍÓÚÑ])"))) {
-                val v = s.trim().trimStart('-', '—', '–').trim()
-                if (v.length !in 40..200) continue
-                if (!v.first().let { it.isUpperCase() || it == '«' || it == '¿' || it == '¡' }) continue
-                out.add(v)
-            }
-        }
-        return out
-    }
-
     /**
-     * El versículo de [date]. Es al azar, pero el mismo durante todo el día; [offset] elige otro
-     * (para el botón "Otro versículo").
+     * El versículo de [date]: el pasaje más significativo de las lecturas del día que no son el
+     * Evangelio (ver [VersePicker]). [offset] pasa al siguiente mejor (botón "Otro versículo").
      */
     fun pick(c: Context, date: String, ecumenical: Boolean, offset: Int): Verse? {
         var rs = readings(c, date)
         if (ecumenical) rs = rs.filter { it.book !in DEUTERO }
-        val pool = rs.flatMap { r -> candidates(r).map { Verse(it, r.ref) } }
-            .ifEmpty {
-                // Sin otras lecturas: una frase del Evangelio del día.
-                val g = GospelRepo.cached(c, date) ?: return null
-                g.text.replace("\n", " ").split(Regex("(?<=[.!?»])\\s+"))
-                    .map { it.trim() }.filter { it.length in 40..200 }
-                    .map { Verse(it, g.ref) }
-            }
-        if (pool.isEmpty()) return null
-        val order = pool.indices.shuffled(Random(date.hashCode()))
-        return pool[order[Math.floorMod(offset, pool.size)]]
+        var ranked = VersePicker.rank(rs.map { VersePicker.Reading(it.book, it.ref, it.text, it.psalm) })
+        if (ranked.isEmpty()) {
+            // Sin otras lecturas guardadas: lo mejor del Evangelio del día.
+            val g = GospelRepo.cached(c, date) ?: return null
+            ranked = VersePicker.rank(listOf(VersePicker.Reading("", g.ref, g.text, false)))
+        }
+        if (ranked.isEmpty()) return null
+        val p = ranked[Math.floorMod(offset, minOf(ranked.size, 8))]
+        return Verse(p.text, p.ref)
     }
 }
 
@@ -217,7 +192,7 @@ object LockVerse {
     fun update(c: Context, force: Boolean = false): Boolean {
         if (!enabled(c)) return true
         val date = GospelRepo.today()
-        val stamp = "$date/${offset(c, date)}/${Prefs.ecumenical(c)}/${Prefs.theme(c).key}"
+        val stamp = "v2/$date/${offset(c, date)}/${Prefs.ecumenical(c)}/${Prefs.theme(c).key}"
         if (!force && sp(c).getString("applied", null) == stamp) return true
         if (!supported(c)) return false
         val v = today(c) ?: return false
