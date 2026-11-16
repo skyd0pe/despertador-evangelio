@@ -82,7 +82,7 @@ object VersePicker {
     }
 
     private val CONNECTOR = Regex(
-        "^(Y|E|Pero|Mas|Entonces|Por eso|Por esto|Porque|Pues|Así|Asimismo|Luego|Después|Cuando|Mientras|" +
+        "^(No sucede así|No será así|No ocurre así|Y|E|Pero|Mas|Entonces|Por eso|Por esto|Porque|Pues|Así|Asimismo|Luego|Después|Cuando|Mientras|" +
             "Ellos|Ellas|Él|El que|Ella|Este|Esta|Estos|Estas|Esto|Eso|Aquel|Aquella|Aquellos|Allí|Ahí|Aquí|" +
             "De modo|De manera|De este modo|Por lo tanto|Sin embargo|Además|También|Al ver|Al oír|Al llegar|" +
             "En aquel|En aquellos|En ese|En esos|Dicho esto|Habiendo|Tras|Apenas|Inmediatamente|Enseguida|Les|Le|Lo|La|Los|Las|Se)(?!\\p{L})",
@@ -141,7 +141,8 @@ object VersePicker {
         if (Regex("^Yo,\\s+\\p{Lu}").containsMatchIn(t)) s -= 5 // "Yo, Pablo…"
         if (!psalm) {
             // Fuera del salmo, la primera persona suele ser el autor contando algo suyo ("No quiero recordarte…").
-            if (!quote) s -= minOf(FIRST.findAll(t).count(), 2) * 1.2
+            // Salvo que empiece como palabra de Dios ("Yo soy…", "Yo estoy…").
+            if (!quote && !STRONG_START.containsMatchIn(t)) s -= minOf(FIRST.findAll(t).count(), 2) * 1.2
             // "ella", "ellos": ¿quiénes? Sin contexto no se entiende.
             s -= minOf(THIRD.findAll(t).count(), 2) * 1.5
             // Le habla a alguien en particular ("Sí, hermano, …").
@@ -166,7 +167,10 @@ object VersePicker {
         }
         s -= minOf(names, 4) * 1.5
         // Tiene que cerrar como oración completa.
-        if (!Regex("[.!?»]$").containsMatchIn(t)) s -= 4
+        if (!Regex("[.!?»]$").containsMatchIn(t)) s -= 6
+        // Mejor una estrofa corta: más de tres versos ya es mucho para la pantalla de bloqueo.
+        val lines = t.count { it == '\n' } + 1
+        if (lines > 3) s -= (lines - 3) * 0.9
         if (t.contains(':') && !quote) s -= 1.0
         // Largo cómodo para leer en la pantalla de bloqueo.
         s -= when {
