@@ -77,6 +77,10 @@ class MainActivity : Activity() {
     private lateinit var lockStatus: TextView
     private var lockBusy = false
 
+    // Pregunta de la noche
+    private lateinit var nightStatus: TextView
+    private lateinit var nightFix: TextView
+
     // Presentación de la primera vez (mientras está, los gestos no cambian de pestaña)
     private var introView: View? = null
 
@@ -129,6 +133,8 @@ class MainActivity : Activity() {
         refreshAlarms()
         refreshPermissions()
         refreshWelcome()
+        Night.schedule(this)
+        refreshNight()
         Thread {
             LockVerse.update(this)
             runOnUiThread { refreshLockPreview() }
@@ -695,6 +701,7 @@ class MainActivity : Activity() {
             setOnCheckedChangeListener { _, on ->
                 Prefs.setNightReminder(this@MainActivity, on)
                 Night.schedule(this@MainActivity)
+                refreshNight()
             }
         }
         tintSwitch(p, nightSw)
@@ -704,6 +711,15 @@ class MainActivity : Activity() {
             "Todas las noches a las ${Night.HOUR} h te pregunta a qué hora te despertás mañana. " +
                 "La hora que elijas desde ahí queda como alarma de una sola vez."
         ), 2)
+        nightStatus = note("")
+        c.add(nightStatus, 10)
+        nightFix = textButton("Activar las notificaciones", p.accent) { Night.openSettings(this) }
+        c.add(nightFix, 0)
+        c.add(textButton("Probar ahora", p.accent) {
+            Night.post(this, test = true)
+            if (Night.canNotify(this)) showToast("Listo", "Fijate en tus notificaciones: así te va a llegar a las ${Night.HOUR} h.")
+            else showToast("No se puede mostrar", "Las notificaciones de Lazarus están apagadas.")
+        }, 0)
 
         // Permisos
         section(c, "Permisos")
@@ -881,6 +897,34 @@ class MainActivity : Activity() {
         }
         c.add(btn, 14)
         updateBox.add(c, 20)
+    }
+
+    /** Estado de la pregunta de la noche: cuándo sale la próxima, cuándo salió la última, o qué falta. */
+    private fun refreshNight() {
+        if (!::nightStatus.isInitialized) return
+        val on = Prefs.nightReminder(this)
+        val ok = Night.canNotify(this)
+        nightFix.visibility = if (on && !ok) View.VISIBLE else View.GONE
+        nightStatus.visibility = if (on) View.VISIBLE else View.GONE
+        if (!on) return
+        if (!ok) {
+            nightStatus.text = "Las notificaciones de Lazarus están apagadas en Android, por eso no te llega la pregunta."
+            nightStatus.setTextColor(p.warn)
+            return
+        }
+        fun whenTxt(t: Long): String {
+            val cal = Calendar.getInstance().apply { timeInMillis = t }
+            val today = Calendar.getInstance()
+            val diff = cal.get(Calendar.DAY_OF_YEAR) - today.get(Calendar.DAY_OF_YEAR) +
+                (cal.get(Calendar.YEAR) - today.get(Calendar.YEAR)) * 365
+            val day = when (diff) { 0 -> "hoy"; 1 -> "mañana"; -1 -> "ayer"; else -> "el ${cal.get(Calendar.DAY_OF_MONTH)}/${cal.get(Calendar.MONTH) + 1}" }
+            return "$day a las " + hm(cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE))
+        }
+        val next = Night.nextAt(this)
+        val last = Night.lastAt(this)
+        nightStatus.text = (if (next > 0) "Próxima: ${whenTxt(next)}." else "") +
+            (if (last > 0) " Última: ${whenTxt(last)}." else " Todavía no salió ninguna.")
+        nightStatus.setTextColor(p.muted)
     }
 
     // =====================================================================

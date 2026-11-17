@@ -337,6 +337,7 @@ class LockVerseReceiver : BroadcastReceiver() {
             try {
                 LockVerse.update(c)
                 LockVerse.schedule(c)
+                Night.schedule(c)
             } finally {
                 done.finish()
             }

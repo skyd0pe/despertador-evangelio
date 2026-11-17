@@ -17,6 +17,7 @@ class GospelSyncJob : JobService() {
         Thread {
             val ok = GospelRepo.syncWeek(this)
             LockVerse.update(this)
+            Night.schedule(this)
             jobFinished(params, ok < 7) // si faltó alguno, Android lo reintenta más tarde
         }.start()
         return true

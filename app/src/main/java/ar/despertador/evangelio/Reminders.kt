@@ -101,12 +101,52 @@ object Night {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 
+    private fun sp(c: Context) = c.getSharedPreferences("night", Context.MODE_PRIVATE)
+
+    /** Cuándo está programada la próxima pregunta y cuándo salió la última (0 = nunca). */
+    fun nextAt(c: Context) = sp(c).getLong("next", 0)
+    fun lastAt(c: Context) = sp(c).getLong("last", 0)
+
+    fun ensureChannel(c: Context) {
+        c.getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(CHANNEL, "Pregunta de la noche", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "A las $HOUR h, para elegir a qué hora te despertás mañana"
+            }
+        )
+    }
+
+    /** Si Android deja mostrar la pregunta (notificaciones de la app y de este canal activadas). */
+    fun canNotify(c: Context): Boolean {
+        val nm = c.getSystemService(NotificationManager::class.java)
+        if (!nm.areNotificationsEnabled()) return false
+        val ch = nm.getNotificationChannel(CHANNEL) ?: return true
+        return ch.importance != NotificationManager.IMPORTANCE_NONE
+    }
+
+    /** Abre los ajustes de Android de esta notificación. */
+    fun openSettings(c: Context) {
+        ensureChannel(c)
+        val i = if (c.getSystemService(NotificationManager::class.java).areNotificationsEnabled())
+            Intent(android.provider.Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS)
+                .putExtra(android.provider.Settings.EXTRA_CHANNEL_ID, CHANNEL)
+        else Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+        i.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, c.packageName)
+        c.startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+
+    /**
+     * Programa la próxima pregunta a las 22 h en punto. Usa un aviso exacto, que Android respeta
+     * aunque el celular esté quieto o ahorrando batería (el aproximado lo podía postergar o saltear).
+     * Se llama seguido (al abrir la app, a la medianoche, al sonar una alarma): si ya está, la reemplaza.
+     */
     fun schedule(c: Context) {
         val am = c.getSystemService(AlarmManager::class.java)
         if (!Prefs.nightReminder(c)) {
             am.cancel(pi(c))
+            sp(c).edit().putLong("next", 0).apply()
             return
         }
+        ensureChannel(c)
         val t = Calendar.getInstance().apply {
             set(Calendar.HOUR_OF_DAY, HOUR)
             set(Calendar.MINUTE, 0)
@@ -114,7 +154,13 @@ object Night {
             set(Calendar.MILLISECOND, 0)
             if (timeInMillis <= System.currentTimeMillis() + 60_000) add(Calendar.DAY_OF_YEAR, 1)
         }
-        am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t.timeInMillis, pi(c))
+        try {
+            if (AlarmScheduler.canExact(c)) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t.timeInMillis, pi(c))
+            else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t.timeInMillis, pi(c))
+        } catch (e: SecurityException) {
+            am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t.timeInMillis, pi(c))
+        }
+        sp(c).edit().putLong("next", t.timeInMillis).apply()
     }
 
     /** La pregunta va cambiando cada noche. */
@@ -126,14 +172,11 @@ object Night {
         "Antes de dormir: ¿a qué hora te levantás?" to "Elegí la hora de mañana.",
     )
 
-    fun post(c: Context) {
-        if (!Prefs.nightReminder(c)) return
+    /** Muestra la pregunta. [test]: desde el botón "Probar ahora" (no cuenta como la de la noche). */
+    fun post(c: Context, test: Boolean = false) {
+        if (!test && !Prefs.nightReminder(c)) return
         val nm = c.getSystemService(NotificationManager::class.java)
-        nm.createNotificationChannel(
-            NotificationChannel(CHANNEL, "Pregunta de la noche", NotificationManager.IMPORTANCE_DEFAULT).apply {
-                description = "A las $HOUR h, para elegir a qué hora te despertás mañana"
-            }
-        )
+        ensureChannel(c)
         val flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         val pick = PendingIntent.getActivity(
             c, 502,
@@ -160,6 +203,7 @@ object Night {
             .setAutoCancel(true)
             .build()
         nm.notify(NOTIF, n)
+        if (!test) sp(c).edit().putLong("last", System.currentTimeMillis()).apply()
     }
 }
 

@@ -16,6 +16,7 @@ class AlarmReceiver : BroadcastReceiver() {
         val id = intent.getIntExtra(AlarmScheduler.EXTRA_ID, -1)
         val a = AlarmStore.get(c, id)
         if (a == null || !a.enabled) return
+        Night.schedule(c)
         if (Prefs.skipIfAwake(c) && Awake.inUse(c)) {
             // Ya está despierto y usando el celular: avisa en vez de sonar.
             Awake.notify(c)
