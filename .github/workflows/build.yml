@@ -3,6 +3,8 @@ name: Compilar APK
 on:
   push:
     branches: ["**"]
+    # La versión de iPhone se compila aparte (ios.yml): no genera una versión nueva de Android.
+    paths-ignore: ["ios/**", ".github/workflows/ios.yml"]
   workflow_dispatch:
 
 permissions:

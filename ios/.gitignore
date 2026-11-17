@@ -1,0 +1,4 @@
+Lazarus.xcodeproj/
+build/
+Lazarus/Info.plist
+*.ipa

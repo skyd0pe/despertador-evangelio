@@ -1,0 +1,65 @@
+name: Compilar iPhone
+
+on:
+  push:
+    branches: ["**"]
+    paths: ["ios/**", ".github/workflows/ios.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Elegir Xcode 26
+        run: |
+          ls -d /Applications/Xcode*.app
+          X=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          echo "Usando $X"
+          sudo xcode-select -s "$X"
+          xcodebuild -version
+
+      - name: Generar el proyecto
+        run: |
+          brew install xcodegen
+          cd ios && xcodegen generate
+
+      - name: Compilar
+        run: |
+          cd ios
+          xcodebuild -project Lazarus.xcodeproj -scheme Lazarus -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" build \
+            | tee build.log | grep -E "error:|warning: .*deprecated|BUILD" || true
+          test -d build/Build/Products/Release-iphoneos/Lazarus.app
+
+      - name: Armar el .ipa
+        run: |
+          cd ios
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/Lazarus.app Payload/
+          zip -qry Lazarus.ipa Payload
+          ls -la Lazarus.ipa
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Lazarus-iPhone
+          path: ios/Lazarus.ipa
+
+      # Solo desde main: se publica aparte, como "prerelease", para no avisar a los de Android.
+      - name: Publicar para iPhone
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          tag_name: iphone
+          name: Lazarus para iPhone
+          prerelease: true
+          make_latest: false
+          body: |
+            Versión de Lazarus para iPhone, para instalar con SideStore.
+            Compilada el ${{ github.event.head_commit.timestamp }}.
+          files: ios/Lazarus.ipa
