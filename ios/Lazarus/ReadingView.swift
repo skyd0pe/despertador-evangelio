@@ -364,13 +364,13 @@ struct ReadingView: View {
                     a.foregroundColor = p.faint
                 } else if w.state == 2 {
                     a.foregroundColor = p.warn
-                    a.strikethroughStyle = .single
+                    a.strikethroughStyle = Text.LineStyle.single
                 } else if m.provisional.contains(wi) {
                     a.foregroundColor = p.muted
-                    a.underlineStyle = .single
+                    a.underlineStyle = Text.LineStyle.single
                 } else if wi == mt.ptr {
                     a.backgroundColor = p.accentSoft
-                    a.underlineStyle = .single
+                    a.underlineStyle = Text.LineStyle.single
                 }
             }
             out += a
