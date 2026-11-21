@@ -26,17 +26,23 @@ opciones reales, proponer y preguntar en vez de elegir por él.
   y más aún los nombres propios.
 - `Gospel` (`GospelRepo`) — fuente: `feed.evangelizo.org/v2/reader.php` (evangeliodeldia.org). Cachea hoy + 6
   días en SharedPreferences y poda lo viejo; `GospelSyncJob` sincroniza una vez por día. Si no hay
-  nada: texto de reserva (Jn 3,16-17, Reina-Valera 1909) marcado `offline`.
+  nada: el Evangelio guardado más cercano; recién después el texto de reserva (Jn 3,16-17, Reina-Valera 1909),
+  ambos marcados `offline`. `FeedHealth` cuenta las fallas de sincronización: cartel en la pestaña Alarmas y
+  notificación a la segunda falla seguida. Evangelizo es la única fuente: no hay segunda.
 - `Liturgy` (color litúrgico por fecha), `Streak`, `Prefs`, `Alarms` (modelo + `AlarmStore`), `Sounds`.
 - `Reminders` (`Night`, `Awake`), `LockVerse` / `VersePicker` — versículo diario y su elección.
-- `MainActivity` (1133 líneas) y `Ui.kt` — UI armada por código, sin XML de layouts ni Compose.
+- `MainActivity` (~1050 líneas), `Ui.kt`, `Permissions.kt`, `Intro.kt` — UI armada por código, sin XML de layouts ni Compose.
+  Partir más `MainActivity` queda pendiente (Evangelio, ajustes, versículo de bloqueo, actualizaciones).
 - `Updater` — consulta `skyd0pe/lazarus-app` releases/latest e instala el APK.
 
 ## Compilar y publicar
 - No hay Gradle wrapper ni Android Studio: **compila GitHub Actions** (`.github/workflows/build.yml`,
-  Gradle 8.9, JDK 17). Cada push compila `assembleDebug`; el push a `main` publica la release
+  Gradle 8.9, JDK 17). Cada push compila `assembleRelease` (firmado con la misma clave); el push a `main` publica la release
   `v1.0.<run_number>` con `Lazarus.apk` (versionCode = número de run).
-- En ramas distintas de `main` corre `VersePickerLiveTest` (necesita internet, `LAZARUS_LIVE=1`).
+- Corre `MatcherTest` (17 pruebas del seguimiento de la lectura) en todas las ramas, y en las que no son `main`
+  también `VersePickerLiveTest` (necesita internet, `LAZARUS_LIVE=1`).
+- Para probar en el celular la alarma en reposo: `docs/PRUEBAS_ALARMA.md`. Sin SDK de Android en el entorno de
+  Claude Code web, la compilación real se verifica empujando a la rama y mirando Actions.
 - Firma: `app/lazarus.p12` (cifrado) + secreto `LAZARUS_KEY_PASSWORD`. El workflow falla si falta el secreto
   o si la huella SHA-256 no coincide. **No cambiar la clave**: rompería las actualizaciones sobre lo instalado.
 - Las acciones de GitHub están fijadas por hash de commit; mantenerlo al actualizarlas.
