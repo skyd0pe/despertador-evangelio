@@ -187,7 +187,7 @@ class MainActivity : Activity() {
         root.addView(nav, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         val frame = FrameLayout(this)
         frame.addView(root)
-        if (!Prefs.introSeen(this)) frame.addView(intro().also { introView = it })
+        if (!Prefs.introSeen(this)) frame.addView(buildIntro(p) { refreshWelcome() }.also { introView = it })
         setContentView(frame)
     }
 
@@ -816,7 +816,7 @@ class MainActivity : Activity() {
         welcomeBox.removeAllViews()
         if (Prefs.welcomeDismissed(this)) return
 
-        val permsOk = perms().all { it.ok }
+        val permsOk = appPerms().all { it.ok }
         val hasAlarm = AlarmStore.all(this).any { it.enabled }
         val tested = Prefs.tested(this)
 
@@ -942,55 +942,6 @@ class MainActivity : Activity() {
     }
 
     // =====================================================================
-    // Presentación de la primera vez
-    // =====================================================================
-
-    private fun intro(): View {
-        val c = col(this).apply { setPadding(dp(28), dp(56), dp(28), dp(36)) }
-        c.add(eyebrow("Lazarus", p).apply { letterSpacing = 0.24f })
-        c.add(label("Bienvenido", 40f, p.ink, Fonts.display(this, 400, 96)), 18)
-        c.add(label("«¡Lázaro, ven afuera!»", 22f, p.ink, Fonts.text(this)), 14)
-        c.add(label("Juan 11, 43", 14f, p.accent, Fonts.ui(this, 600)), 4)
-        c.add(TrazoView(this, p.accent, 36), 20)
-
-        c.add(label(
-            "Lazarus es un despertador que no se apaga hasta que leés en voz alta el Evangelio del día.",
-            18f, p.ink
-        ).apply { setLineSpacing(0f, 1.4f) }, 20)
-        c.add(label(
-            "Levantarse temprano es la primera victoria del día. Acá esa victoria empieza escuchando la Palabra, " +
-                "como Lázaro, que oyó la voz de Jesús y se levantó.",
-            16f, p.muted
-        ).apply { setLineSpacing(0f, 1.45f) }, 12)
-
-        val note = card(p)
-        note.add(eyebrow("Un mensaje de quien hizo Lazarus", p))
-        note.add(label(
-            "¡Gracias por probar Lazarus! Espero que te ayude a conquistar un mejor descanso, como me ha " +
-                "ayudado también a mí. Cualquier duda o aporte que creas que puede ayudar a que la app mejore, " +
-                "me encantaría escucharlo.",
-            17f, p.ink, Fonts.text(this)
-        ).apply { setLineSpacing(0f, 1.45f) }, 10)
-        c.add(note, 28)
-
-        val overlay = ScrollView(this).apply {
-            setBackgroundColor(p.paper)
-            isClickable = true
-            isFillViewport = true
-            isVerticalScrollBarEnabled = false
-        }
-        c.add(pill("Empezar", p.primaryBg, p.primaryFg) {
-            Prefs.setIntroSeen(this)
-            overlay.animate().alpha(0f).setDuration(220).withEndAction {
-                (overlay.parent as? ViewGroup)?.removeView(overlay)
-                refreshWelcome()
-            }.start()
-        }, 32)
-        overlay.addView(c)
-        return overlay
-    }
-
-    // =====================================================================
     // Versículo en la pantalla de bloqueo
     // =====================================================================
 
@@ -1052,59 +1003,11 @@ class MainActivity : Activity() {
         }.start()
     }
 
-    // ---------- permisos ----------
-
-    private class Perm(val name: String, val why: String, val ok: Boolean, val fix: (() -> Unit)?)
-
-    private fun perms(): List<Perm> {
-        val list = ArrayList<Perm>()
-        val pkg = Uri.parse("package:$packageName")
-        list.add(Perm(
-            "Micrófono", "Para escuchar tu lectura.",
-            checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-        ) { requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), 1) })
-        if (Build.VERSION.SDK_INT >= 33) {
-            list.add(Perm(
-                "Notificaciones", "Para mostrar la alarma.",
-                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
-            ) { requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2) })
-        }
-        if (Build.VERSION.SDK_INT >= 31) {
-            list.add(Perm("Alarmas exactas", "Para sonar a la hora justa.", AlarmScheduler.canExact(this)) {
-                open(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, pkg))
-            })
-        }
-        if (Build.VERSION.SDK_INT >= 34) {
-            val nm = getSystemService(NotificationManager::class.java)
-            list.add(Perm("Pantalla completa", "Para aparecer con el celular bloqueado.", nm.canUseFullScreenIntent()) {
-                open(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT, pkg))
-            })
-        }
-        list.add(Perm("Mostrar sobre otras apps", "Para abrir la lectura sola al sonar.", Settings.canDrawOverlays(this)) {
-            open(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, pkg))
-        })
-        val pm = getSystemService(PowerManager::class.java)
-        list.add(Perm("Batería sin restricciones", "Para que el sistema no la duerma.", pm.isIgnoringBatteryOptimizations(packageName)) {
-            open(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, pkg))
-        })
-        list.add(Perm(
-            "Reconocimiento de voz", "Lo da la app de Google. Si falta, instalala o actualizala.",
-            SpeechRecognizer.isRecognitionAvailable(this), null
-        ))
-        return list
-    }
-
-    private fun open(i: Intent) {
-        try {
-            startActivity(i)
-        } catch (e: Exception) {
-            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$packageName")))
-        }
-    }
+    // ---------- permisos (la lista está en Permissions.kt) ----------
 
     private fun refreshPermissions() {
         permBox.removeAllViews()
-        val list = perms()
+        val list = appPerms()
         val missing = list.count { !it.ok }
         tabs[2].text = if (missing > 0) "Ajustes · $missing" else "Ajustes"
 
