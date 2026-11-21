@@ -1,6 +1,11 @@
 package ar.despertador.evangelio
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.text.Html
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -84,11 +89,17 @@ object GospelRepo {
         }
         prune(c)
         VerseRepo.prune(c, week().toSet())
+        FeedHealth.record(c, cached(c, today()) != null && cached(c, tomorrow()) != null)
         return ok
     }
 
     /** Bloquea: llamar fuera del hilo principal. */
-    fun fetch(c: Context, date: String): Gospel? = try {
+    fun fetch(c: Context, date: String): Gospel? = fetchOnce(c, date) ?: run {
+        try { Thread.sleep(1500) } catch (e: InterruptedException) { }
+        fetchOnce(c, date)
+    }
+
+    private fun fetchOnce(c: Context, date: String): Gospel? = try {
         val text = clean(get("$BASE?date=$date&type=reading&content=GSP&lang=SP"))
         if (text.length < 40) {
             null
@@ -107,7 +118,21 @@ object GospelRepo {
 
     /** Bloquea: llamar fuera del hilo principal. */
     fun loadOrFetch(c: Context, date: String): Gospel =
-        cached(c, date) ?: fetch(c, date) ?: fallback(date)
+        cached(c, date) ?: fetch(c, date) ?: nearestCached(c, date) ?: fallback(date)
+
+    /**
+     * Plan B si no hay internet ni el texto de ese día: el Evangelio guardado más cercano
+     * (también de la CEA) en vez de un versículo suelto de otra traducción.
+     */
+    fun nearestCached(c: Context, date: String): Gospel? {
+        val target = Liturgy.dateOf(date).toEpochDay()
+        val best = store(c).all.keys
+            .filter { it.startsWith("t_") }
+            .map { it.removePrefix("t_") }
+            .minByOrNull { kotlin.math.abs(Liturgy.dateOf(it).toEpochDay() - target) }
+            ?: return null
+        return cached(c, best)?.copy(offline = true)
+    }
 
     fun get(url: String): String {
         val conn = URL(url).openConnection() as HttpURLConnection
@@ -160,4 +185,63 @@ object GospelRepo {
             "el mundo sea salvo por él.",
         offline = true
     )
+}
+
+/**
+ * Si el Evangelio de hoy o de mañana no se pudo bajar, la alarma tendría que sonar con otro texto.
+ * Esto lleva la cuenta de las fallas seguidas para avisar en la app y con una notificación.
+ */
+object FeedHealth {
+    private const val CHANNEL = "avisos"
+    private const val NOTIF = 23
+    private const val ALERT_AFTER = 2
+
+    private fun sp(c: Context) = c.getSharedPreferences("feed_health", Context.MODE_PRIVATE)
+
+    fun record(c: Context, ok: Boolean) {
+        val e = sp(c).edit()
+        if (ok) {
+            e.putInt("fails", 0).putBoolean("alerted", false).putLong("ok_at", System.currentTimeMillis())
+        } else {
+            e.putInt("fails", sp(c).getInt("fails", 0) + 1)
+        }
+        e.apply()
+        if (ok) c.getSystemService(NotificationManager::class.java).cancel(NOTIF)
+        else if (sp(c).getInt("fails", 0) >= ALERT_AFTER && !sp(c).getBoolean("alerted", false)) alert(c)
+    }
+
+    /** Mensaje para mostrar en la app mientras falte el Evangelio de hoy o de mañana; null si todo está bien. */
+    fun problem(c: Context): String? {
+        if (sp(c).getInt("fails", 0) < 1) return null
+        return when {
+            GospelRepo.cached(c, GospelRepo.today()) == null ->
+                "No se pudo bajar el Evangelio de hoy. Si suena la alarma, va a mostrar otro texto guardado."
+            GospelRepo.cached(c, GospelRepo.tomorrow()) == null ->
+                "No se pudo bajar el Evangelio de mañana. Conectate a internet antes de dormir para que la alarma tenga su texto."
+            else -> null
+        }
+    }
+
+    private fun alert(c: Context) {
+        val nm = c.getSystemService(NotificationManager::class.java)
+        if (!nm.areNotificationsEnabled()) return
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL, "Avisos de Lazarus", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "Cuando no se puede bajar el Evangelio del día"
+            }
+        )
+        val open = PendingIntent.getActivity(
+            c, 503, Intent(c, MainActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val n = Notification.Builder(c, CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_alarm)
+            .setContentTitle("No pude bajar el Evangelio")
+            .setContentText("Conectate a internet para que la alarma de mañana tenga su texto.")
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+        nm.notify(NOTIF, n)
+        sp(c).edit().putBoolean("alerted", true).apply()
+    }
 }

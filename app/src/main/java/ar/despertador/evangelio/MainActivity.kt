@@ -62,6 +62,7 @@ class MainActivity : Activity() {
 
     // Bienvenida, versión nueva y avisos
     private lateinit var welcomeBox: LinearLayout
+    private lateinit var feedBox: LinearLayout
     private lateinit var updateBox: LinearLayout
     private lateinit var toast: LinearLayout
     private lateinit var tvToastTitle: TextView
@@ -281,6 +282,8 @@ class MainActivity : Activity() {
         c.add(updateBox, 0)
         welcomeBox = col(this)
         c.add(welcomeBox, 0)
+        feedBox = col(this)
+        c.add(feedBox, 0)
 
         val next = card(p)
         next.add(eyebrow("Próxima alarma", p))
@@ -343,6 +346,17 @@ class MainActivity : Activity() {
         val n = Streak.current(this)
         tvNextStreak.text = if (n == 0) "Mañana puede empezar tu racha." else Streak.phrase(n)
         if (::welcomeBox.isInitialized) refreshWelcome()
+        refreshFeed()
+    }
+
+    /** Aviso si no se pudo bajar el Evangelio de hoy o de mañana. */
+    private fun refreshFeed() {
+        if (!::feedBox.isInitialized) return
+        feedBox.removeAllViews()
+        val msg = FeedHealth.problem(this) ?: return
+        val c = card(p)
+        c.add(label(msg, 14f, p.warn))
+        feedBox.add(c, 16)
     }
 
     /** "Mañana · en 5 h 41 min". */
@@ -510,7 +524,7 @@ class MainActivity : Activity() {
             val date = GospelRepo.today()
             val g = (if (force) null else GospelRepo.cached(this, date)) ?: GospelRepo.fetch(this, date)
             GospelRepo.syncWeek(this)
-            runOnUiThread { showGospel(g) }
+            runOnUiThread { showGospel(g); refreshFeed() }
         }.start()
     }
 

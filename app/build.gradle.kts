@@ -38,6 +38,8 @@ android {
         }
         getByName("release") {
             isMinifyEnabled = false
+            // Misma clave que la de debug: las versiones nuevas se instalan encima de las anteriores.
+            if (!keyPassword.isNullOrEmpty()) signingConfig = signingConfigs.getByName("lazarus")
         }
     }
 

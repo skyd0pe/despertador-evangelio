@@ -35,7 +35,7 @@ jobs:
       - name: Compilar
         env:
           LAZARUS_KEY_PASSWORD: ${{ secrets.LAZARUS_KEY_PASSWORD }}
-        run: gradle :app:assembleDebug --stacktrace --no-daemon
+        run: gradle :app:assembleRelease --stacktrace --no-daemon
 
       - name: Probar la elección de versículos con lecturas reales
         if: github.ref != 'refs/heads/main'
@@ -44,9 +44,12 @@ jobs:
           LAZARUS_KEY_PASSWORD: ${{ secrets.LAZARUS_KEY_PASSWORD }}
         run: gradle :app:testDebugUnitTest --tests '*VersePickerLiveTest*' --no-daemon
 
+      - name: Probar el reconocimiento de la lectura
+        run: gradle :app:testDebugUnitTest --tests '*MatcherTest*' --no-daemon
+
       - name: Renombrar y verificar la firma
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk Lazarus.apk
+          cp app/build/outputs/apk/release/app-release.apk Lazarus.apk
           SIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
           FP=$("$SIGNER" verify --print-certs Lazarus.apk | grep -m1 "SHA-256 digest" | awk '{print $NF}')
           echo "Firma: $FP"
